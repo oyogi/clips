@@ -1,0 +1,11 @@
+[project]
+name = "youtube-clips"
+version = "0.1.0"
+description = "Make subtitled YouTube clips in one terminal session with replies pasted from ChatGPT."
+requires-python = ">=3.12"
+dependencies = [
+  "yt-dlp[default]>=2025.11.12",
+  "pysubs2>=1.8,<2",
+  "rich>=14,<15",
+  "opencv-python-headless>=4.10,<5",
+]
