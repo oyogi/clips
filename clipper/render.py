@@ -1,4 +1,4 @@
-"""Render portrait clips with subtitles and a chosen framing style."""
+"""Render portrait H.264 clips with burned-in subtitles."""
 
 import json
 import re
@@ -6,14 +6,43 @@ import shutil
 import subprocess
 import tempfile
 import threading
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 from .faces import face_commands
-from .models import ClipsError, finite_number
+from .models import Clip, ClipsError, Cue, Framing, ProgressCallback, finite_number
 from .subtitles import write_clip_subtitles
 
 
-def command(args, timeout=30):
+@dataclass(frozen=True)
+class Encoder:
+    name: str
+    device: str | None = None
+    low_power: bool = False
+
+    @property
+    def kind(self) -> str:
+        return "GPU" if self.device else "CPU"
+
+    @property
+    def input_options(self) -> list[str]:
+        return ["-vaapi_device", self.device] if self.device else []
+
+    @property
+    def pixel_filter(self) -> str:
+        return "format=nv12,hwupload" if self.device else "format=yuv420p"
+
+    @property
+    def video_options(self) -> list[str]:
+        if self.device:
+            return ["-c:v", self.name, "-b:v", "6M", "-low_power", str(int(self.low_power))]
+        if self.name == "libx264":
+            return "-c:v libx264 -crf 20 -preset fast".split()
+        return ["-c:v", self.name, "-b:v", "6M"]
+
+
+def command(args: list[str], timeout: float = 30) -> str:
     try:
         result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as error:
@@ -23,43 +52,52 @@ def command(args, timeout=30):
     return result.stdout
 
 
-def check_encoder():
+def check_encoder() -> Encoder:
     for executable in ("ffmpeg", "ffprobe"):
         if not shutil.which(executable):
             raise ClipsError(f"Install {executable} and put it on PATH.")
-    filters = command(["ffmpeg", "-hide_banner", "-filters"])
+    filters = command("ffmpeg -hide_banner -filters".split())
     for name in ("ass", "sendcmd"):
         if not re.search(rf"\b{name}\s", filters):
             raise ClipsError(f"FFmpeg needs the {name} filter.")
-    encoders = command(["ffmpeg", "-hide_banner", "-encoders"])
+    encoders = command("ffmpeg -hide_banner -encoders".split())
     if not re.search(r"\baac\s", encoders):
         raise ClipsError("FFmpeg needs an AAC audio encoder.")
-    for name in ("libx264", "libopenh264"):
-        if not re.search(rf"\b{name}\s", encoders):
+    candidates = [
+        Encoder("h264_vaapi", str(device), low_power)
+        for device in sorted(Path("/dev/dri").glob("renderD*"))
+        for low_power in (True, False)
+    ] + [Encoder(name) for name in ("libx264", "libopenh264")]
+    for encoder in candidates:
+        if not re.search(rf"\b{encoder.name}\s", encoders):
             continue
         try:
-            command([
-                "ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
-                "-i", "color=c=black:s=180x320:d=0.1",
-                "-c:v", name, "-b:v", "500k", "-f", "null", "-",
-            ])
-            return name
+            # Listed GPU encoders can still lack a working driver or profile.
+            command(
+                "ffmpeg -nostdin -hide_banner -loglevel error".split()
+                + encoder.input_options
+                + "-f lavfi -i color=c=black:s=1080x1920:r=30:d=0.1".split()
+                + ["-vf", encoder.pixel_filter]
+                + encoder.video_options
+                + "-f null -".split(),
+                timeout=8,
+            )
+            return encoder
         except ClipsError:
             continue
-    raise ClipsError("No working H.264 encoder. Install FFmpeg with libx264 or libopenh264.")
+    raise ClipsError("No working H.264 encoder. Install libx264, libopenh264, or a VA-API driver.")
 
 
-def check_media(path, end=None, size=None):
+def check_media(path: Path, end: float | None = None, size: tuple[int, int] | None = None) -> float:
     try:
-        info = json.loads(command([
-            "ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path),
-        ]))
+        info = json.loads(
+            command("ffprobe -v error -show_streams -show_format -of json".split() + [str(path)])
+        )
     except ValueError as error:
         raise ClipsError("ffprobe returned invalid video information.") from error
     streams = info.get("streams", [])
     video = next((s for s in streams if s.get("codec_type") == "video"), None)
-    audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
-    if not video or not audio:
+    if not video or not any(s.get("codec_type") == "audio" for s in streams):
         raise ClipsError("The video must have both a picture and an audio track.")
     try:
         duration = float(info["format"]["duration"])
@@ -72,10 +110,15 @@ def check_media(path, end=None, size=None):
     return duration
 
 
-def video_filters(width, height, layout, following=False):
-    # Normalize pixel shape before fitting/cropping; preserve the display aspect.
+def video_filters(
+    width: int,
+    height: int,
+    layout: Framing,
+    following: bool = False,
+    pixel_filter: str = "format=yuv420p",
+) -> str:
     start = "[0:v]setpts=PTS-STARTPTS,scale=trunc(iw*sar/2)*2:ih,setsar=1,"
-    finish = "setsar=1,ass=captions.ass,format=yuv420p[v]"
+    finish = f"setsar=1,ass=captions.ass,{pixel_filter}[v]"
     fit = f"scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2"
     fill = f"scale={width}:{height}:force_original_aspect_ratio=increase:force_divisible_by=2"
     if layout == "blur":
@@ -88,20 +131,26 @@ def video_filters(width, height, layout, following=False):
         )
     if layout == "black":
         return start + f"{fit},pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,{finish}"
-    if following:
-        crop = f"sendcmd=f=face.cmd,crop@face={width}:{height}"
-    else:
-        crop = f"crop={width}:{height}:(iw-ow)/2:(ih-oh)/2"
+    crop = (
+        f"sendcmd=f=face.cmd,crop@face={width}:{height}"
+        if following
+        else f"crop={width}:{height}:(iw-ow)/2:(ih-oh)/2"
+    )
     return start + f"{fill},{crop},{finish}"
 
 
-def encode(args, work, duration, progress):
-    # Separate stderr keeps the progress pipe from filling with codec messages.
+def encode(args: list[str], work: Path, duration: float, progress: ProgressCallback | None) -> None:
+    # Keep stderr separate so codec messages cannot block the progress pipe.
     with tempfile.TemporaryFile(mode="w+") as errors:
         with subprocess.Popen(
-            args, cwd=work, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-            stderr=errors, text=True,
+            args,
+            cwd=work,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=errors,
+            text=True,
         ) as process:
+            assert process.stdout is not None
             timer = threading.Timer(max(180, duration * 30), process.kill)
             timer.daemon = True
             timer.start()
@@ -122,12 +171,23 @@ def encode(args, work, duration, progress):
                 timer.cancel()
         if code:
             errors.seek(0)
-            raise ClipsError("FFmpeg failed: " + (errors.read()[-2500:].strip() or "Encoding timed out."))
+            raise ClipsError(
+                "FFmpeg failed: " + (errors.read()[-2500:].strip() or "Encoding timed out.")
+            )
     if progress:
         progress("Encoding", 1.0)
 
 
-def render_clip(source, clip, cues, output, number, encoder, layout="blur", progress=None):
+def render_clip(
+    source: Path,
+    clip: Clip,
+    cues: Sequence[Cue],
+    output: Path,
+    number: int,
+    encoder: Encoder,
+    layout: Framing = "blur",
+    progress: ProgressCallback | None = None,
+) -> tuple[Path, str]:
     check_media(source, end=clip.end)
     width, height = 1080, 1920
     output.mkdir(parents=True, exist_ok=True)
@@ -143,28 +203,35 @@ def render_clip(source, clip, cues, output, number, encoder, layout="blur", prog
             following = face_commands(source, clip, width, height, work / "face.cmd", progress)
             if not following:
                 note = "No face found; used a centered crop."
-        codec = (
-            ["-c:v", "libx264", "-crf", "20", "-preset", "fast"]
-            if encoder == "libx264"
-            else ["-c:v", "libopenh264", "-b:v", "6M"]
-        )
         if progress:
             progress("Encoding", 0.0)
-        encode([
-            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-            "-progress", "pipe:1", "-nostats", "-ss", f"{clip.start:.3f}",
-            "-i", str(source.resolve()), "-t", f"{clip.duration:.3f}",
-            "-filter_complex", video_filters(width, height, layout, following),
-            "-map", "[v]", "-map", "0:a:0", "-af", "asetpts=PTS-STARTPTS",
-            *codec, "-r", "30", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-            "-movflags", "+faststart", "-map_metadata", "-1", "video.mp4",
-        ], work, clip.duration, progress)
+        encode(
+            "ffmpeg -nostdin -hide_banner -loglevel error -y".split()
+            + encoder.input_options
+            + [
+                "-progress",
+                "pipe:1",
+                "-nostats",
+                "-ss",
+                f"{clip.start:.3f}",
+                "-i",
+                str(source.resolve()),
+                "-t",
+                f"{clip.duration:.3f}",
+                "-filter_complex",
+                video_filters(width, height, layout, following, encoder.pixel_filter),
+            ]
+            + "-map [v] -map 0:a:0 -af asetpts=PTS-STARTPTS".split()
+            + encoder.video_options
+            + "-r 30 -c:a aac -b:a 192k -ar 48000 -movflags +faststart -map_metadata -1 video.mp4".split(),
+            work,
+            clip.duration,
+            progress,
+        )
         duration = check_media(work / "video.mp4", size=(width, height))
         if abs(duration - clip.duration) > 0.25:
             raise ClipsError("The rendered duration does not match the chosen clip.")
-        post = "\n\n".join(part for part in (clip.title, clip.description, " ".join(clip.hashtags)) if part)
-        (work / "post.txt").write_text(post + "\n", encoding="utf-8")
+        (work / "post.txt").write_text(clip.publishing_text, encoding="utf-8")
         (work / "video.mp4").replace(destination)
         (work / "post.txt").replace(destination.with_suffix(".txt"))
     return destination, note

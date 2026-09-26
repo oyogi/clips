@@ -2,10 +2,45 @@
 name = "youtube-clips"
 version = "0.1.0"
 description = "Make subtitled YouTube clips in one terminal session with replies pasted from ChatGPT."
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
   "yt-dlp[default]>=2025.11.12",
   "pysubs2>=1.8,<2",
   "rich>=14,<15",
+  "prompt-toolkit>=3.0.50,<4",
   "opencv-python-headless>=4.10,<5",
 ]
+
+[dependency-groups]
+dev = ["ruff>=0.12", "mypy>=1.15", "build>=1.2"]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+youtube-clips = "clipper.cli:main"
+
+[tool.setuptools]
+packages = ["clipper", "clipper.assets"]
+py-modules = ["clips"]
+
+[tool.setuptools.package-data]
+clipper = ["assets/*.onnx", "assets/LICENSE-YuNet"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "ANN"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["clipper", "clips.py"]
+
+[[tool.mypy.overrides]]
+module = ["yt_dlp.*", "gi.*"]
+ignore_missing_imports = true

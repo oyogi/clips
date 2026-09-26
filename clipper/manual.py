@@ -3,10 +3,11 @@
 import json
 import re
 
-from .models import Clip, ClipsError, finite_number
+from .models import Clip, ClipsError, Transcript, finite_number
 
 
-def make_prompt(video, cues, count):
+def make_prompt(source: Transcript, count: int) -> str:
+    video, cues = source.video, source.cues
     transcript = "\n".join(
         f"[{cue.id}] {cue.start:.3f}s -> {cue.end:.3f}s | {cue.text}" for cue in cues
     )
@@ -50,8 +51,8 @@ TRANSCRIPT
 {transcript}"""
 
 
-def parse_reply(text, video, cues, count):
-    # Accept both the code block's Copy button and a reply with Markdown fences.
+def parse_reply(text: str, source: Transcript, count: int) -> list[Clip]:
+    video, cues = source.video, source.cues
     text = text.strip().lstrip("\ufeff")
     fenced = re.search(r"```(?:json)?\s*([\s\S]*?)```", text, flags=re.IGNORECASE)
     if fenced:
@@ -59,13 +60,15 @@ def parse_reply(text, video, cues, count):
     try:
         value = json.loads(text)
     except ValueError as error:
-        raise ClipsError("The reply is not valid JSON. Copy the complete JSON from ChatGPT.") from error
+        raise ClipsError(
+            "The reply is not valid JSON. Copy the complete JSON from ChatGPT."
+        ) from error
     items = value.get("clips") if isinstance(value, dict) else value
     if not isinstance(items, list):
         raise ClipsError('The reply must contain {"clips": [...]}.')
 
     lookup = {cue.id: cue for cue in cues}
-    clips = []
+    clips: list[Clip] = []
     for number, item in enumerate(items, 1):
         try:
             if not isinstance(item, dict):
@@ -90,12 +93,14 @@ def parse_reply(text, video, cues, count):
             if not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags):
                 raise ValueError("hashtags must be a list of text values")
             if any(max(start, clip.start) < min(end, clip.end) for clip in clips):
-                raise ValueError("this clip overlaps another selection; ask ChatGPT for distinct clips")
+                raise ValueError(
+                    "this clip overlaps another selection; ask ChatGPT for distinct clips"
+                )
             tags = ["#" + re.sub(r"[^\w]", "", tag)[:35] for tag in tags[:5]]
             description = description.strip()[:1500]
             if video.title not in description:
                 credit = f"Full video: {video.title}"
-                description = description[:max(0, 1500 - len(credit) - 2)].rstrip()
+                description = description[: max(0, 1500 - len(credit) - 2)].rstrip()
                 description = f"{description}\n\n{credit}".lstrip()
             clips.append(
                 Clip(

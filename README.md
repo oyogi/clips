@@ -1,49 +1,68 @@
 # YouTube Clips
 
-Turn a YouTube video into subtitled clips using ChatGPT in your browser.
+A small Linux terminal app that turns YouTube videos into subtitled clips for
+Reels, TikTok and Shorts. Use ChatGPT in your browser to choose the moments;
+the app handles downloading, framing and rendering. No API key or speech
+transcription service is needed.
+
+## Features
+
+- Portrait MP4 clips at **1080×1920, 30 fps**, with readable, burned-in subtitles.
+- Four framing styles: blurred background, black background, centered crop or face tracking.
+- Existing YouTube captions, including automatic captions. Videos without captions are skipped.
+- Downloads run while you use ChatGPT. VA-API GPU encoding is selected when available, with CPU fallback.
+- Each clip includes a TXT with its title, description, hashtags and the full source video title.
+- Automatic clipboard copying for the ChatGPT prompt and, when one clip is created, its publishing text.
+
+Finished files go into `output/`. Source videos and working files are temporary
+and removed when the session ends. Uploading to social media is manual.
+
+## Requirements
+
+- Linux and Python **3.12+**.
+- `ffmpeg` and `ffprobe`, with libass, AAC and a working H.264 encoder:
+  VA-API, libx264 or libopenh264.
+- Node.js or Deno for yt-dlp's YouTube support.
+- For clipboard integration: `wl-copy`, `xclip`, `xsel` or system Python with GTK 3.
+
+Face tracking uses the bundled [OpenCV YuNet model](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet)
+and runs on the CPU. Its license is included in `clipper/assets/`.
+
+## Install and run
+
+From the project directory:
 
 ```bash
-uv run clips.py
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install .
+youtube-clips
 ```
 
-1. Enter a YouTube video URL, how many clips you want, and choose a framing style.
-2. The prompt is copied to your clipboard. Paste it into ChatGPT and keep the program open.
-3. Paste ChatGPT's reply back into the terminal. Type `END` on a new line and press Enter.
-4. Get your clips in `output/`. The program prints the folder when finished.
+Alternatively, use `uv run clips.py`. With dependencies installed,
+`python clips.py` works too; uv is optional.
 
-Clips are always portrait **9:16 at 1080×1920**. Choose how the picture fits:
+Follow the prompts, paste the generated prompt into ChatGPT, then paste its JSON
+reply into the terminal. Submit with **Ctrl+D**, or type `END` on a new line and
+press Enter.
 
-| Framing | Result |
-| --- | --- |
-| Blur background (default) | Keeps the whole picture over a blurred background. |
-| Black bars | Keeps the whole picture and fills unused space with black. |
-| Center crop | Fills the frame with a fixed crop from the center. |
-| Follow faces | Fills the frame and moves the crop to follow a prominent visible face. |
+## Build
 
-To keep the whole original picture, choose **Blur background** or **Black bars**.
-Face tracking samples the selected clip and smooths the movement. It briefly holds the
-position when a face disappears, then returns to center. If no face is detected, the
-whole clip uses a centered crop. It follows a visible face, which may not be the speaker
-when several people are present. The small [OpenCV YuNet model](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet)
-is included with its license; it runs locally on the CPU.
+No compilation is needed to run this Python project. To build an installable wheel
+and source archive:
 
-The terminal shows download and rendering progress. Each finished MP4 has burned-in
-subtitles. A matching TXT contains its English title, description and hashtags.
-Every description includes the complete original video title, added automatically if ChatGPT omits it.
-The prompt targets 30–60 seconds, allowing longer clips to finish a thought.
-The program shows each selection's duration and keeps the chosen caption boundaries. Posting is manual.
+```bash
+python -m pip install build
+python -m build
+```
 
-Existing YouTube captions are required, including YouTube's automatic captions.
-English is preferred; otherwise, the program uses an available original caption track.
-Subtitles keep that track's language. Videos without usable captions are skipped.
-There are no API keys, Whisper, project files to manage or separate commands.
-Downloads are reused automatically from `.cache/clips/`.
+Packages are written to `dist/`, including the face-detection model and its license.
 
-Clipboard copying uses `wl-copy`, `xclip` or `xsel`, with the system's GTK 3 as a fallback
-(already available on this Fedora desktop). If the clipboard cannot be reached, the
-prompt appears in the terminal for manual copying. For another Linux installation,
-install `wl-clipboard` on Wayland or `xclip` on X11 if needed.
+## Development
 
-Requires Python 3.12+, uv, FFmpeg with libass, AAC and either libx264 or libopenh264,
-and Node or Deno for yt-dlp. `uv run` installs the Python dependencies automatically:
-yt-dlp, pysubs2, Rich and OpenCV. No API keys or speech recognition are used.
+```bash
+uv sync
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy
+```

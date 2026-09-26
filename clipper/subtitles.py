@@ -4,24 +4,24 @@ import html
 import json
 import re
 import textwrap
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 import pysubs2
 
-from .models import Cue, SkipVideo, finite_number
+from .models import ClipsError, Cue, finite_number
 
 
-def clean_text(text):
+def clean_text(text: str) -> str:
     text = re.sub(r"<[^>]*>", "", text)
     text = re.sub(r"\{\\[^}]*\}", "", text)
     text = html.unescape(text).replace("\u200b", "")
-    # YouTube captions may prefix a new speaker with >> (including &gt;&gt;).
     text = re.sub(r"(?<!\S)>{2,}\s*", "", text)
     return " ".join(text.split())
 
 
-def normalize_cues(rows):
-    cleaned = []
+def normalize_cues(rows: Iterable[tuple[float, float, str]]) -> list[Cue]:
+    cleaned: list[tuple[float, float, str]] = []
     for start, end, text in sorted(rows, key=lambda row: row[0]):
         text = clean_text(text)
         if not text or not finite_number(start) or not finite_number(end):
@@ -46,8 +46,7 @@ def normalize_cues(rows):
                 if previous[-size:] == current[:size]:
                     overlap = size
                     break
-            # Only remove repeated words from overlapping rolling captions.
-            # Adjacent, non-overlapping repetitions may be actual speech.
+            # Remove overlap only: adjacent repetition may be actual speech.
             text = " ".join(current[overlap:])
             if not text:
                 continue
@@ -56,8 +55,8 @@ def normalize_cues(rows):
     return [Cue(i, round(s, 3), round(e, 3), t) for i, (s, e, t) in enumerate(cleaned)]
 
 
-def parse_captions(content: str, extension: str):
-    rows = []
+def parse_captions(content: str, extension: str) -> list[Cue]:
+    rows: list[tuple[float, float, str]] = []
     if extension == "json3":
         events = json.loads(content).get("events", [])
         for event in events:
@@ -74,11 +73,16 @@ def parse_captions(content: str, extension: str):
         rows = [(s.start / 1000, s.end / 1000, s.plaintext) for s in subs]
     cues = normalize_cues(rows)
     if not cues:
-        raise SkipVideo("Subtitle track has no usable timed text.")
+        raise ClipsError("Subtitle track has no usable timed text.")
     return cues
 
 
-def caption_cards(cues, start, end, chars_per_line=18):
+def caption_cards(
+    cues: Sequence[Cue],
+    start: float,
+    end: float,
+    chars_per_line: int = 18,
+) -> list[tuple[int, int, str]]:
     cards = []
     for cue in cues:
         left, right = max(cue.start, start), min(cue.end, end)
@@ -101,7 +105,14 @@ def caption_cards(cues, start, end, chars_per_line=18):
     return cards
 
 
-def write_clip_subtitles(cues, start, end, directory: Path, width=1080, height=1920):
+def write_clip_subtitles(
+    cues: Sequence[Cue],
+    start: float,
+    end: float,
+    directory: Path,
+    width: int = 1080,
+    height: int = 1920,
+) -> None:
     subs = pysubs2.SSAFile()
     subs.info.update({"PlayResX": str(width), "PlayResY": str(height), "WrapStyle": "2"})
     subs.styles["Default"] = pysubs2.SSAStyle(
@@ -120,5 +131,5 @@ def write_clip_subtitles(cues, start, end, directory: Path, width=1080, height=1
         event.plaintext = text
         subs.append(event)
     if not subs:
-        raise SkipVideo("Selected interval contains no subtitles.")
+        raise ClipsError("Selected interval contains no subtitles.")
     subs.save(str(directory / "captions.ass"), encoding="utf-8")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run with: uv run clips.py."""
+"""Launch the interactive clipper."""
 
 from clipper.cli import main
 

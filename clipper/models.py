@@ -1,17 +1,16 @@
-import json
+"""Shared clip, transcript, and progress types."""
+
 import math
-import os
-import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from pathlib import Path
+from typing import Literal, TypeGuard
+
+type Framing = Literal["blur", "black", "crop", "face"]
+type ProgressCallback = Callable[[str, float | None], None]
 
 
 class ClipsError(Exception):
-    """A user-actionable failure."""
-
-
-class SkipVideo(ClipsError):
-    """This source is unsuitable; continue with other sources."""
+    """A failure that can be shown directly in the terminal."""
 
 
 @dataclass(frozen=True)
@@ -32,6 +31,14 @@ class Video:
 
 
 @dataclass(frozen=True)
+class Transcript:
+    video: Video
+    cues: list[Cue]
+    language: str
+    automatic: bool
+
+
+@dataclass(frozen=True)
 class Clip:
     start: float
     end: float
@@ -40,28 +47,16 @@ class Clip:
     hashtags: list[str] = field(default_factory=list)
 
     @property
-    def duration(self):
+    def duration(self) -> float:
         return self.end - self.start
 
-
-def finite_number(value):
-    return type(value) in (int, float) and math.isfinite(value)
-
-
-def dump_json(path: Path, data):
-    """Atomic writes keep interrupted downloads from leaving corrupt cache files."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    handle, temporary = tempfile.mkstemp(prefix=".json-", dir=path.parent)
-    try:
-        with os.fdopen(handle, "w", encoding="utf-8") as stream:
-            json.dump(data, stream, ensure_ascii=False, indent=2, allow_nan=False)
-            stream.write("\n")
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+    @property
+    def publishing_text(self) -> str:
+        return (
+            "\n\n".join(filter(None, (self.title, self.description, " ".join(self.hashtags))))
+            + "\n"
+        )
 
 
-def read_json(path: Path):
-    return json.loads(path.read_text(encoding="utf-8"))
-
+def finite_number(value: object) -> TypeGuard[int | float]:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
