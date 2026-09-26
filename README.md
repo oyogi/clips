@@ -31,7 +31,10 @@ Word highlights use estimated timing within the existing captions.
 - For clipboard integration: `wl-copy`, `xclip`, `xsel` or system Python with GTK 3.
 
 Face tracking uses the bundled [OpenCV YuNet model](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet)
-and runs on the CPU. Its license is included in `clipper/assets/`.
+and compares available CPU and GPU backends, choosing GPU only when it is faster
+on a sample frame. CPU fallback is automatic. Its license is included in `clipper/assets/`.
+Run `youtube-clips doctor` to check encoding and face-detection hardware.
+See [GPU support](docs/gpu.md) for driver details.
 
 ## Install and run
 

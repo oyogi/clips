@@ -1053,6 +1053,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
+    { name = "numpy" },
     { name = "opencv-python-headless" },
     { name = "prompt-toolkit" },
     { name = "pysubs2" },
@@ -1070,6 +1071,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.28,<1" },
+    { name = "numpy", specifier = ">=2,<3" },
     { name = "opencv-python-headless", specifier = ">=4.10,<5" },
     { name = "prompt-toolkit", specifier = ">=3.0.50,<4" },
     { name = "pysubs2", specifier = ">=1.8,<2" },

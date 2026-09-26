@@ -54,16 +54,23 @@ class FramingPlan:
         )
 
 
-def sample_faces(source: Path, clip: Clip, progress: ProgressCallback | None) -> list[Sample]:
+@dataclass(frozen=True)
+class FaceScan:
+    samples: list[Sample]
+    engine: str
+
+
+def sample_faces(source: Path, clip: Clip, progress: ProgressCallback | None) -> FaceScan:
     import cv2
 
-    model = Path(__file__).with_name("assets") / "face_detection_yunet.onnx"
+    from .detection import Detector, choose_detector
+
     capture = cv2.VideoCapture(str(source))
     samples = []
+    detector: Detector | None = None
     try:
         if not capture.isOpened():
             raise ClipsError("Could not open the source for face tracking.")
-        detector = cv2.FaceDetectorYN.create(str(model), "", (320, 320), 0.75, 0.3, 5000)
         fps = capture.get(cv2.CAP_PROP_FPS)
         if not math.isfinite(fps) or fps <= 0:
             fps = 30
@@ -92,8 +99,19 @@ def sample_faces(source: Path, clip: Clip, progress: ProgressCallback | None) ->
             gray = cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (32, 18))
             cut = previous_gray is not None and bool(cv2.absdiff(gray, previous_gray).mean() > 40)
             previous_gray = gray
-            detector.setInputSize((frame_w, frame_h))
-            _, detected = detector.detect(frame)
+            if detector is None:
+                detector = choose_detector(frame)
+            try:
+                detected = detector.detect(frame)
+            except cv2.error:
+                if detector.label.startswith("CPU"):
+                    raise
+                model = Path(__file__).with_name("assets") / "face_detection_yunet.onnx"
+                detector = Detector(
+                    cv2.FaceDetectorYN.create(str(model), "", (frame_w, frame_h), 0.75, 0.3, 5000),
+                    "CPU (GPU fallback)",
+                )
+                detected = detector.detect(frame)
             faces = (
                 tuple(
                     Face(
@@ -110,7 +128,7 @@ def sample_faces(source: Path, clip: Clip, progress: ProgressCallback | None) ->
             )
             samples.append(Sample(timestamp, faces, cut))
             if progress:
-                progress("Finding faces", min(1.0, timestamp / clip.duration))
+                progress(f"Faces · {detector.label}", min(1.0, timestamp / clip.duration))
     except cv2.error as error:
         raise ClipsError("Face detection failed; try Black framing.") from error
     finally:
@@ -118,7 +136,8 @@ def sample_faces(source: Path, clip: Clip, progress: ProgressCallback | None) ->
     if not samples:
         raise ClipsError("Could not read frames for face tracking.")
     samples[0] = Sample(0, samples[0].faces, True)
-    return samples
+    assert detector is not None
+    return FaceScan(samples, detector.label)
 
 
 def plan_framing(samples: list[Sample], duration: float) -> FramingPlan:

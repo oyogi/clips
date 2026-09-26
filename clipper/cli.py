@@ -146,12 +146,31 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["auto", "auto-setup", "accounts", "queue"],
+        choices=["auto", "auto-setup", "accounts", "queue", "doctor"],
         help="automatic mode, saved publishing choices, account connections, or upload status",
     )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
     try:
+        if args.command == "doctor":
+            from .detection import benchmark
+
+            with console.status("Checking encoders and face detection…"):
+                encoder = check_encoder()
+                detector, gpu = benchmark()
+            console.print(f"Encoding: {encoder.kind} · {encoder.name}")
+            console.print(
+                f"Face detection: {detector.label} · {detector.milliseconds:.1f} ms/sample"
+            )
+            if not gpu:
+                console.print(
+                    "No OpenCV GPU compute backend is available. VA-API encoding is independent."
+                )
+            console.print(
+                "Detection benchmark uses a 640 × 360 synthetic frame; real clips can differ.",
+                style="muted",
+            )
+            return 0
         if args.command == "accounts":
             from .publishing.accounts import manage_accounts
 

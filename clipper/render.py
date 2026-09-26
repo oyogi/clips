@@ -238,11 +238,13 @@ def render_clip(
             if progress:
                 progress("Finding faces", 0.0)
             try:
-                samples = sample_faces(source, clip, progress)
-                plan = plan_framing(samples, clip.duration)
-                following = any(sample.faces for sample in samples)
+                scan = sample_faces(source, clip, progress)
+                plan = plan_framing(scan.samples, clip.duration)
+                following = any(sample.faces for sample in scan.samples)
                 write_commands(plan, work, width, height, clip.duration)
-                note = plan.summary if layout == "auto" else ""
+                note = (
+                    plan.summary if layout == "auto" else "Face tracking"
+                ) + f" · detection: {scan.engine}"
                 if layout == "face" and not following:
                     note = "No face found; used the full picture on black."
                     layout = "black"
