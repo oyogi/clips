@@ -80,7 +80,9 @@ python -m pip install build
 python -m build
 ```
 
-Artifacts are written to `dist/`, including the face model and its license.
+Artifacts are written to `dist/`, including the face model and license notices.
+Building or installing can create `build/` and `youtube_clips.egg-info/`; these
+generated directories are ignored by Git and can be deleted afterward.
 
 ## Development
 
@@ -90,3 +92,8 @@ uv run ruff check .
 uv run ruff format --check .
 uv run mypy
 ```
+
+## License
+
+[MIT](LICENSE). The bundled YuNet model retains its original
+[MIT license and attribution](clipper/assets/LICENSE-YuNet).

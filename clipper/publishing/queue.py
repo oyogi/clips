@@ -79,7 +79,7 @@ def worker() -> None:
 
 
 def start_worker() -> None:
-    if not any(entry.state == "queued" for entry in jobs()):
+    if not any(entry.state in ("queued", "uploading") for entry in jobs()):
         return
     with (state_directory() / "worker.log").open("ab") as log:
         log_path = Path(log.name)

@@ -102,7 +102,7 @@ def youtube(client: httpx.Client, job: Job, token: str, checkpoint: Checkpoint) 
         offset = int(acknowledged.rsplit("-", 1)[-1]) + 1 if acknowledged else 0
         if not 0 <= offset < size:
             raise ClipsError("YouTube upload status is inconclusive; check YouTube Studio.")
-    if response is None or not response.is_success:
+    if not response.is_success:
         raise ClipsError(
             "YouTube upload did not finish; check YouTube Studio before uploading again."
         )

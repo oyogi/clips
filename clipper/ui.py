@@ -95,9 +95,17 @@ def choose_layout() -> Framing:
 
 def read_reply(download: SourceDownload) -> str:
     if not sys.stdin.isatty() or not console.is_terminal or console.is_dumb_terminal:
-        console.print("Paste the JSON reply. Finish with END on a new line.")
-        lines = []
-        while (line := input()).strip() != "END":
+        console.print("Paste the JSON reply. Finish with Ctrl+D or END on a new line.")
+        lines: list[str] = []
+        while True:
+            try:
+                line = input()
+            except EOFError:
+                if not any(line.strip() for line in lines):
+                    raise
+                break
+            if line.strip() == "END":
+                break
             lines.append(line)
         return "\n".join(lines)
 
