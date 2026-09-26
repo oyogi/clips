@@ -13,6 +13,7 @@ transcription service is needed.
 - Downloads run while you use ChatGPT. VA-API GPU encoding is selected when available, with CPU fallback.
 - Each clip includes a TXT with its title, description, hashtags and the full source video title.
 - Automatic clipboard copying for the ChatGPT prompt and, when one clip is created, its publishing text.
+- A selection prompt that compares a larger candidate pool and ranks clips for hook, clarity, payoff and retention.
 
 Finished files go into `output/`. Source videos and working files are temporary
 and removed when the session ends. Uploading to social media is manual.
