@@ -7,7 +7,7 @@ transcription service is needed.
 
 ## Features
 
-- Portrait MP4 clips at **1080×1920, 30 fps**, with readable, burned-in subtitles.
+- Portrait MP4 clips at **1080×1920, 30 fps**, with burned-in subtitles and active-word highlights.
 - Four framing styles: blurred background, black background, centered crop or face tracking.
 - Existing YouTube captions, including automatic captions. Videos without captions are skipped.
 - Downloads run while you use ChatGPT. VA-API GPU encoding is selected when available, with CPU fallback.
@@ -16,6 +16,7 @@ transcription service is needed.
 
 Finished files go into `output/`. Source videos and working files are temporary
 and removed when the session ends. Uploading to social media is manual.
+Word highlights use estimated timing within the existing captions.
 
 ## Requirements
 

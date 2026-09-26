@@ -127,9 +127,29 @@ def write_clip_subtitles(
         marginv=round(height * 0.14),
     )
     for left, right, text in caption_cards(cues, start, end):
-        event = pysubs2.SSAEvent(start=left, end=right)
-        event.plaintext = text
-        subs.append(event)
+        words = list(re.finditer(r"\S+", text))
+        weights = [max(1, len(re.sub(r"\W", "", word.group()))) for word in words]
+        total, elapsed = sum(weights), 0
+        for word, weight in zip(words, weights, strict=True):
+            word_start = left + round((right - left) * elapsed / total)
+            elapsed += weight
+            word_end = left + round((right - left) * elapsed / total)
+            if word_end <= word_start:
+                continue
+            highlighted = (
+                text[: word.start()]
+                + r"{\1c&H0069C9F3&}"
+                + word.group()
+                + r"{\r}"
+                + text[word.end() :]
+            )
+            subs.append(
+                pysubs2.SSAEvent(
+                    start=word_start,
+                    end=word_end,
+                    text=highlighted.replace("\n", r"\N"),
+                )
+            )
     if not subs:
         raise ClipsError("Selected interval contains no subtitles.")
     subs.save(str(directory / "captions.ass"), encoding="utf-8")
