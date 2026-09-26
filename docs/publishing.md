@@ -83,3 +83,20 @@ resuming an active YouTube upload. An interrupted upload may already exist on th
 platform; the queue keeps its remote reference when available. Check the account
 before uploading again to avoid duplicates. Changing account connections never
 redirects old queued jobs to a different account.
+
+## Automatic mode
+
+Run `youtube-clips auto` to set up saved destinations on first use, then create
+clips with automatic framing and no review or upload confirmation after rendering.
+You still choose the source, clip count and paste ChatGPT's reply. Every successfully
+rendered clip goes into the upload queue, including when another clip failed to render.
+
+Choose immediate uploads or spaced posting: a delay before the first clip, then
+an interval between clips. Spaced YouTube posts become public at their scheduled
+times; immediate uploads use your saved visibility. TikTok remains draft delivery.
+Each run starts its own schedule after rendering; it does not reserve account-wide
+slots or avoid times chosen by other runs.
+
+Run `youtube-clips auto-setup` to change the saved choices. A disconnected or
+replaced account requires setup again. Ordinary `youtube-clips` runs always keep
+the review and upload confirmation steps.

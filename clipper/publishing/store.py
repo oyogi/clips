@@ -41,6 +41,9 @@ def database() -> Iterator[sqlite3.Connection]:
                 "CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, data TEXT, "
                 "due REAL, state TEXT DEFAULT 'queued', result TEXT DEFAULT '')"
             )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, data TEXT)"
+            )
             yield connection
     finally:
         connection.close()

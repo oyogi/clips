@@ -17,6 +17,7 @@ from .clipboard import copy_text
 from .download import SourceDownload
 from .manual import make_prompt, parse_reply
 from .models import Clip, ClipsError, Framing, Transcript
+from .publishing.automatic import Automatic, load_automatic
 from .publishing.workflow import Export, offer_upload
 from .render import Encoder, check_encoder, render_clip
 from .ui import console
@@ -69,6 +70,7 @@ def create_clips(
     transcript: Transcript,
     encoder: Encoder,
     layout: Framing,
+    automatic: Automatic | None = None,
 ) -> int:
     output = Path("output") / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     exports: list[Export] = []
@@ -101,11 +103,14 @@ def create_clips(
         if not copied:
             console.print("[warning]Clipboard unavailable; use the TXT file.[/warning]")
     ui.summary(paths, len(clips), elapsed, copied)
-    offer_upload(exports)
+    if automatic:
+        automatic.upload(exports)
+    else:
+        offer_upload(exports)
     return 0 if len(paths) == len(clips) else 1
 
 
-def run() -> int:
+def run(automatic: Automatic | None = None) -> int:
     with console.status("Checking video tools…", spinner="dots"):
         encoder = check_encoder()
     ui.header(encoder)
@@ -121,7 +126,7 @@ def run() -> int:
                 if 1 <= count <= 100:
                     break
                 console.print("[warning]Enter a number from 1 to 100.[/warning]")
-            layout = ui.choose_layout()
+            layout: Framing = "auto" if automatic else ui.choose_layout()
             ui.section("Selection")
             clips = get_clips(transcript, count, download)
             if len(clips) < count:
@@ -131,7 +136,7 @@ def run() -> int:
             ui.section("Export")
             with ui.progress("Downloading video") as update:
                 source = download.result(update)
-        return create_clips(source, clips, transcript, encoder, layout)
+        return create_clips(source, clips, transcript, encoder, layout, automatic)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -141,8 +146,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["accounts", "queue"],
-        help="connect publishing accounts or check scheduled uploads",
+        choices=["auto", "auto-setup", "accounts", "queue"],
+        help="automatic mode, saved publishing choices, account connections, or upload status",
     )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
@@ -157,6 +162,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             show_queue()
             return 0
+        if args.command == "auto-setup":
+            from .publishing.automatic import configure
+
+            configure()
+            return 0
+        if args.command == "auto":
+            return run(load_automatic())
         return run()
     except httpx.HTTPError:
         console.print(

@@ -15,6 +15,7 @@ transcription service is needed.
 - Automatic clipboard copying for the ChatGPT prompt and, when one clip is created, its publishing text.
 - A selection prompt that compares a larger candidate pool and ranks clips for hook, clarity, payoff and retention.
 - Optional YouTube and Instagram publishing, with scheduling and a local upload queue; TikTok inbox drafts.
+- An opt-in automatic mode that frames and uploads clips using saved choices, without a review step.
 
 Finished files go into `output/`. Source videos and working files are temporary
 and removed when the session ends. Publishing is optional; account setup and
@@ -49,6 +50,11 @@ Alternatively, use `uv run clips.py`. With dependencies installed,
 Follow the prompts, paste the generated prompt into ChatGPT, then paste its JSON
 reply into the terminal. Submit with **Ctrl+D**, or type `END` on a new line and
 press Enter.
+
+Use `youtube-clips auto` for automatic framing and uploads after pasting the
+ChatGPT reply. Its first run saves your destinations and immediate or spaced
+posting schedule. Change those choices with `youtube-clips auto-setup`.
+TikTok still requires finishing drafts in its app.
 
 ## Build
 
