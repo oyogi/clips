@@ -114,7 +114,6 @@ def video_filters(
     width: int,
     height: int,
     layout: Framing,
-    following: bool = False,
     pixel_filter: str = "format=yuv420p",
     plan: FramingPlan | None = None,
 ) -> str:
@@ -122,7 +121,7 @@ def video_filters(
     finish = f"setsar=1,ass=captions.ass,{pixel_filter}[v]"
     fit = f"scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2"
     fill = f"scale={width}:{height}:force_original_aspect_ratio=increase:force_divisible_by=2"
-    if layout == "auto" and plan:
+    if layout == "face" and plan:
         views = {scene.view for scene in plan.scenes}
         if views == {"black"}:
             return start + f"{fit},pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,{finish}"
@@ -158,22 +157,7 @@ def video_filters(
             )
             parts.append(f"[{background}][{foreground}]overlay=0:0:enable='{enabled}'[{result}]")
         return ";".join(parts + [f"[framed]{finish}"])
-    if layout == "blur":
-        small_w, small_h = width // 8 * 2, height // 8 * 2
-        return (
-            start + "split=2[back][front];"
-            f"[back]scale={small_w}:{small_h}:force_original_aspect_ratio=increase,"
-            f"crop={small_w}:{small_h},boxblur=8:1,scale={width}:{height}[bg];"
-            f"[front]{fit}[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,{finish}"
-        )
-    if layout == "black":
-        return start + f"{fit},pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,{finish}"
-    crop = (
-        f"sendcmd=f=face.cmd,crop@face={width}:{height}"
-        if following
-        else f"crop={width}:{height}:(iw-ow)/2:(ih-oh)/2"
-    )
-    return start + f"{fill},{crop},{finish}"
+    return start + f"{fit},pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,{finish}"
 
 
 def encode(args: list[str], work: Path, duration: float, progress: ProgressCallback | None) -> None:
@@ -222,7 +206,7 @@ def render_clip(
     output: Path,
     number: int,
     encoder: Encoder,
-    layout: Framing = "auto",
+    layout: Framing = "face",
     progress: ProgressCallback | None = None,
 ) -> tuple[Path, str]:
     check_media(source, end=clip.end)
@@ -232,22 +216,15 @@ def render_clip(
     note = ""
     with tempfile.TemporaryDirectory(prefix=".render-", dir=output) as temporary:
         work = Path(temporary)
-        following = False
         plan = None
-        if layout in ("auto", "face"):
+        if layout == "face":
             if progress:
                 progress("Finding faces", 0.0)
             try:
                 scan = sample_faces(source, clip, progress)
                 plan = plan_framing(scan.samples, clip.duration)
-                following = any(sample.faces for sample in scan.samples)
                 write_commands(plan, work, width, height, clip.duration)
-                note = (
-                    plan.summary if layout == "auto" else "Face tracking"
-                ) + f" · detection: {scan.engine}"
-                if layout == "face" and not following:
-                    note = "No face found; used the full picture on black."
-                    layout = "black"
+                note = plan.summary + f" · detection: {scan.engine}"
             except ClipsError as error:
                 layout, note = "black", f"{error} Used the full picture on black."
         write_clip_subtitles(
@@ -257,7 +234,7 @@ def render_clip(
             work,
             width,
             height,
-            plan.split_ranges if plan and layout == "auto" else (),
+            plan.split_ranges if plan and layout == "face" else (),
         )
         if progress:
             progress("Encoding", 0.0)
@@ -275,7 +252,7 @@ def render_clip(
                 "-t",
                 f"{clip.duration:.3f}",
                 "-filter_complex",
-                video_filters(width, height, layout, following, encoder.pixel_filter, plan),
+                video_filters(width, height, layout, encoder.pixel_filter, plan),
             ]
             + "-map [v] -map 0:a:0 -af asetpts=PTS-STARTPTS".split()
             + encoder.video_options

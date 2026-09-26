@@ -1,14 +1,15 @@
 """Review finished clips and choose destinations and posting times."""
 
-import subprocess
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from rich.markup import escape
 from rich.prompt import Confirm, Prompt
+from rich.style import Style
 from rich.table import Table
+from rich.text import Text
 
 from ..clipboard import copy_text
 from ..models import Clip, ClipsError
@@ -46,52 +47,34 @@ def parse_time(value: str) -> float:
 
 
 def review(exports: list[Export]) -> list[Export]:
-    selected = []
-    for export in exports:
-        console.print(f"\n{export.path.name} · {export.clip.title}", markup=False)
-        while True:
-            action = Prompt.ask(
-                "Clip",
-                choices=["keep", "preview", "text", "skip", "delete"],
-                default="keep",
-                console=console,
-            )
-            if action == "preview":
-                try:
-                    subprocess.Popen(
-                        ["xdg-open", str(export.path.resolve())],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                except OSError:
-                    console.print("Open the MP4 from the output folder.", style="warning")
-            elif action == "text":
-                console.print(export.clip.publishing_text, markup=False)
-                title = Prompt.ask("Title", default=export.clip.title, console=console)
-                description = Prompt.ask(
-                    "Description", default=export.clip.description, console=console
-                )
-                tags = Prompt.ask(
-                    "Hashtags", default=" ".join(export.clip.hashtags), console=console
-                )
-                export = replace(
-                    export,
-                    clip=replace(
-                        export.clip, title=title, description=description, hashtags=tags.split()
-                    ),
-                )
-                export.path.with_suffix(".txt").write_text(
-                    export.clip.publishing_text, encoding="utf-8"
-                )
-            elif action == "keep":
-                selected.append(export)
-                break
-            elif action == "skip":
-                break
-            elif Confirm.ask("Delete this MP4 and its TXT?", default=False, console=console):
-                export.path.unlink()
-                export.path.with_suffix(".txt").unlink(missing_ok=True)
-                break
+    remaining = {str(number): export for number, export in enumerate(exports, 1)}
+    console.print("Open the paths below to review. Deleting a clip removes its MP4 and TXT.")
+    while remaining:
+        table = Table(box=None, padding=(0, 2), show_edge=False, pad_edge=False)
+        table.add_column("#", style="accent", no_wrap=True)
+        table.add_column("Clips to upload")
+        for number, export in remaining.items():
+            path = export.path.resolve()
+            detail = Text(export.clip.title)
+            detail.append(f"\n{path}", style=console.get_style("muted") + Style(link=path.as_uri()))
+            table.add_row(number, detail)
+        console.print(table)
+        number = Prompt.ask(
+            "Number to delete (Enter to continue)", default="", console=console
+        ).strip()
+        if not number:
+            break
+        if number not in remaining:
+            console.print("Enter one of the listed numbers.", style="warning")
+            continue
+        export = remaining[number]
+        export.path.unlink(missing_ok=True)
+        export.path.with_suffix(".txt").unlink(missing_ok=True)
+        del remaining[number]
+        console.print(f"Deleted {export.path.name} and its TXT.", style="muted", markup=False)
+    selected = list(remaining.values())
+    if not selected:
+        console.print("No clips left to upload.", style="muted")
     if len(selected) == 1 and copy_text(selected[0].clip.publishing_text, persist=True):
         console.print("Publishing text copied.", style="success")
     return selected

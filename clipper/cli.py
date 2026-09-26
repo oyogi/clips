@@ -127,7 +127,7 @@ def run(automatic: Automatic | None = None) -> int:
                 if 1 <= count <= 100:
                     break
                 console.print("[warning]Enter a number from 1 to 100.[/warning]")
-            layout: Framing = "auto" if automatic else ui.choose_layout()
+            layout: Framing = "face" if automatic else ui.choose_layout()
             ui.section("Selection")
             clips = get_clips(transcript, count, download)
             if len(clips) < count:
@@ -166,6 +166,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             if not gpu:
                 console.print(
                     "No OpenCV GPU compute backend is available. VA-API encoding is independent."
+                )
+            elif detector.label == "CPU":
+                console.print(
+                    "GPU compute is available; CPU was preferred by the speed and accuracy checks."
                 )
             console.print(
                 "Detection benchmark uses a 640 × 360 synthetic frame; real clips can differ.",

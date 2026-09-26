@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal, TypeGuard
 
-type Framing = Literal["auto", "blur", "black", "crop", "face"]
+type Framing = Literal["face", "black"]
 type ProgressCallback = Callable[[str, float | None], None]
 
 

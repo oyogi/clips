@@ -149,27 +149,106 @@ def connect_youtube(client: httpx.Client) -> Account:
 
 def connect_instagram(client: httpx.Client) -> Account:
     console.print(
-        "Use a Facebook-linked Instagram professional account and a long-lived Meta token."
+        "Instagram needs a professional account linked to a Facebook Page.\n"
+        "Setup guide: docs/publishing.md#instagram\n"
+        "Get your App ID and App secret from developers.facebook.com/apps.\n"
+        "Generate a User access token at developers.facebook.com/tools/explorer."
     )
-    identifier = Prompt.ask("Instagram account ID", console=console).strip()
-    if not identifier.isdecimal():
-        raise ClipsError("Instagram account IDs contain digits only.")
-    token = Prompt.ask("Meta access token", password=True, console=console).strip()
-    info = data(
-        client.get(
-            f"{GRAPH}/{identifier}",
-            params={"fields": "id,username"},
-            headers={"Authorization": "Bearer " + token},
+    app_id = Prompt.ask("Meta App ID", console=console).strip()
+    if not app_id.isdecimal():
+        raise ClipsError("The Meta App ID is the number in App settings → Basic.")
+    secret = Prompt.ask("Meta App secret", password=True, console=console).strip()
+    token = Prompt.ask(
+        "User access token from Graph API Explorer", password=True, console=console
+    ).strip()
+    if not secret or not token:
+        raise ClipsError("Enter both the App secret and User access token.")
+    token = required(
+        data(
+            client.get(
+                f"{GRAPH}/oauth/access_token",
+                params={
+                    "grant_type": "fb_exchange_token",
+                    "client_id": app_id,
+                    "client_secret": secret,
+                    "fb_exchange_token": token,
+                },
+            )
+        ),
+        "access_token",
+    )
+    headers = {"Authorization": "Bearer " + token}
+    permissions = data(client.get(f"{GRAPH}/me/permissions", headers=headers)).get("data")
+    if not isinstance(permissions, list):
+        raise ClipsError("Meta did not return the token permissions. Generate a new User token.")
+    granted = {
+        str(item.get("permission"))
+        for item in map(object_data, permissions)
+        if item.get("status") == "granted"
+    }
+    missing = {
+        "pages_show_list",
+        "pages_read_engagement",
+        "instagram_basic",
+        "instagram_content_publish",
+    } - granted
+    if missing:
+        raise ClipsError(
+            "Generate a new User token with these permissions: " + ", ".join(sorted(missing))
         )
+    found: dict[str, tuple[Account, str]] = {}
+    parameters = {
+        "fields": "name,access_token,instagram_business_account{id,username}",
+        "limit": "100",
+    }
+    while True:
+        info = data(client.get(f"{GRAPH}/me/accounts", params=parameters, headers=headers))
+        pages = info.get("data")
+        if not isinstance(pages, list):
+            raise ClipsError("Meta did not return your Pages. Generate a new User access token.")
+        for page in map(object_data, pages):
+            if not page.get("instagram_business_account"):
+                continue
+            instagram = object_data(page["instagram_business_account"])
+            account = Account(
+                "instagram",
+                required(instagram, "id"),
+                "@" + required(instagram, "username"),
+                {"access_token": required(page, "access_token")},
+            )
+            found[account.id] = account, required(page, "name")
+        paging = object_data(info.get("paging", {}))
+        if not paging.get("next"):
+            break
+        after = required(object_data(paging.get("cursors")), "after")
+        if after == parameters.get("after"):
+            raise ClipsError("Meta repeated a Page of results. Please connect again.")
+        parameters["after"] = after
+    if not found:
+        raise ClipsError(
+            "No linked Instagram accounts found. Link a professional account to a Facebook Page, "
+            "give your Facebook user full control of that Page, and select it when generating "
+            "the token. See docs/publishing.md#instagram."
+        )
+    choices = list(found.values())
+    for number, (account, page_name) in enumerate(choices, 1):
+        console.print(f"{number}  {account.label} · Facebook Page: {page_name}", markup=False)
+    choice = Prompt.ask(
+        "Instagram account",
+        choices=[str(i) for i in range(1, len(choices) + 1)],
+        default="1",
+        console=console,
     )
-    return Account(
-        "instagram", required(info, "id"), "@" + required(info, "username"), {"access_token": token}
-    )
+    return choices[int(choice) - 1][0]
 
 
 def connect_tiktok(client: httpx.Client) -> Account:
     console.print("TikTok uploads go to your inbox. Finish editing and posting in TikTok.")
-    console.print("Register http://127.0.0.1:8765/callback/ in your app's Desktop Login Kit.")
+    console.print(
+        "Setup guide: docs/publishing.md#tiktok-drafts\n"
+        "Your developer app needs Login Kit (Desktop) and Content Posting API with video.upload.\n"
+        "Register this exact redirect URI: http://127.0.0.1:8765/callback/"
+    )
     credentials = {
         "client_key": Prompt.ask("TikTok client key", console=console).strip(),
         "client_secret": Prompt.ask("TikTok client secret", password=True, console=console).strip(),
@@ -184,7 +263,11 @@ def connect_tiktok(client: httpx.Client) -> Account:
     )
     token = data(client.post(TIKTOK_TOKEN, data={**credentials, **code}))
     if "video.upload" not in str(token.get("scope", "")).split(","):
-        raise ClipsError("TikTok video.upload permission was not granted.")
+        raise ClipsError(
+            "TikTok video.upload permission was not granted. Add Content Posting API and its "
+            "video.upload scope in the developer portal, complete TikTok's required review, "
+            "then connect again. See docs/publishing.md#tiktok-drafts."
+        )
     account = Account("tiktok", required(token, "open_id"), "", credentials)
     save_token(account, token)
     info = data(

@@ -44,11 +44,8 @@ THEME = Theme(
 )
 console = Console(highlight=False, theme=THEME)
 LAYOUTS: tuple[tuple[str, str, Framing], ...] = (
-    ("Auto", "One face: follow · Two: split · Otherwise: full picture", "auto"),
+    ("Faces", "Follow one person · Split two · Full picture otherwise", "face"),
     ("Black", "Full picture, black background", "black"),
-    ("Faces", "Crop follows a visible face", "face"),
-    ("Crop", "Fixed crop from the center", "crop"),
-    ("Blur", "Full picture, blurred background", "blur"),
 )
 
 

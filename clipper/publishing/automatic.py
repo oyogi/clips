@@ -66,9 +66,7 @@ def minutes(label: str, default: int) -> int:
 
 
 def configure() -> Automatic:
-    console.print(
-        "Automatic runs use automatic framing and upload every finished clip without review."
-    )
+    console.print("Automatic runs use Faces framing and upload every finished clip without review.")
     platforms = choose_platforms()
     if not platforms:
         raise ClipsError("Select at least one destination for automatic mode.")

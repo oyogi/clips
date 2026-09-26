@@ -49,7 +49,7 @@ class FramingPlan:
     @property
     def summary(self) -> str:
         labels = {"black": "full picture", "face": "face tracking", "split": "two-person split"}
-        return "Automatic · " + ", ".join(
+        return "Faces · " + ", ".join(
             labels[view] for view in dict.fromkeys(s.view for s in self.scenes)
         )
 
@@ -143,14 +143,21 @@ def sample_faces(source: Path, clip: Clip, progress: ProgressCallback | None) ->
 def plan_framing(samples: list[Sample], duration: float) -> FramingPlan:
     if not samples:
         return FramingPlan([Scene(0, duration, "black")], [])
-    changes: list[tuple[float, View]] = [(0, samples[0].view)]
-    for index, sample in enumerate(samples[1:], 1):
-        if sample.view == changes[-1][1]:
+    confirmation, minimum_hold = 2.0, 4.0
+    opening = [sample.view for sample in samples if sample.time < confirmation]
+    initial = max(opening, key=opening.count)
+    if opening.count(initial) < len(opening) * 0.75:
+        initial = "black"
+    changes: list[tuple[float, View]] = [(0, initial)]
+    candidate, since = initial, 0.0
+    for sample in samples:
+        if sample.view != candidate:
+            candidate, since = sample.view, sample.time
+        if candidate == changes[-1][1] or sample.time - since < confirmation - 0.001:
             continue
-        previous = samples[index - 1]
-        if sample.cut or sample.view == previous.view:
-            start = sample.time if sample.cut else previous.time
-            changes.append((start, sample.view))
+        start = max(since, changes[-1][0] + minimum_hold)
+        if start <= sample.time and duration - start >= minimum_hold:
+            changes.append((start, candidate))
     scenes = [
         Scene(start, changes[index + 1][0] if index + 1 < len(changes) else duration, view)
         for index, (start, view) in enumerate(changes)
@@ -167,8 +174,8 @@ def crop_tracks(samples: Sequence[Sample]) -> tuple[list[Point], list[Point], li
     target = center
     pair = (center, center)
     for sample in samples:
-        if sample.cut:
-            target, pair, last_seen = center, (center, center), -10.0
+        if sample.cut and sample.faces:
+            target = center
         if sample.faces:
             previous = target
             target = max(
@@ -176,7 +183,7 @@ def crop_tracks(samples: Sequence[Sample]) -> tuple[list[Point], list[Point], li
                 key=lambda face: face.area / (1 + math.dist(face.center, previous) * 8),
             ).center
             last_seen = sample.time
-        elif sample.time - last_seen > 1:
+        elif sample.time - last_seen > 3:
             target = center
         if len(sample.faces) == 2:
             ordered = sorted((face.center for face in sample.faces), key=lambda point: point[0])
@@ -194,7 +201,7 @@ def crop_tracks(samples: Sequence[Sample]) -> tuple[list[Point], list[Point], li
                 track.append(point)
             else:
                 track.append(
-                    (track[-1][0] * 0.45 + point[0] * 0.55, track[-1][1] * 0.45 + point[1] * 0.55)
+                    (track[-1][0] * 0.7 + point[0] * 0.3, track[-1][1] * 0.7 + point[1] * 0.3)
                 )
     return single, top, bottom
 

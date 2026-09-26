@@ -8,9 +8,10 @@ Clip creation needs no API key or speech transcription service.
 ## Features
 
 - **1080 × 1920 MP4s**, with large subtitles and a gold highlight on the current word.
-- **Automatic framing:** follow one face, stack two people with subtitles in the
-  middle, or keep the whole picture on black for crowds and scenes without faces.
-  Manual black, face, center-crop and blur options remain available.
+- **Faces framing, by default:** follow one person, stack two with subtitles in
+  the middle, or keep the whole picture on black for crowds and scenes without
+  faces. Layouts hold for at least four seconds and ignore brief detection changes.
+  Choose **Black** to keep the full picture throughout.
 - **Better moment selection:** the prompt compares a wider candidate pool and ranks
   it for hook, clarity, payoff and retention.
 - **Less waiting:** downloading overlaps the ChatGPT step; encoding uses VA-API
@@ -34,7 +35,6 @@ Linux, **Python 3.12+**, and:
   libx264 or libopenh264.
 - Node.js or Deno for YouTube downloads.
 - `wl-copy`, `xclip`, `xsel`, or system Python with GTK 3 for clipboard support.
-- `xdg-open` for opening clip previews from the terminal.
 
 The bundled face model is [OpenCV YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet);
 its license is included. GPU detection needs a compute driver separate from the
@@ -58,7 +58,7 @@ press Enter. Everything else is guided in the terminal.
 | Command | Purpose |
 | --- | --- |
 | `youtube-clips` | Create clips and optionally review and publish |
-| `youtube-clips auto` | Use automatic framing and upload without clip review |
+| `youtube-clips auto` | Use Faces framing and upload without clip review |
 | `youtube-clips auto-setup` | Change automatic destinations and timing |
 | `youtube-clips accounts` | Connect or remove publishing accounts |
 | `youtube-clips queue` | Check uploads, cancel jobs or retry failures |
