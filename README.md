@@ -1,44 +1,46 @@
 # YouTube Clips
 
-A small Linux terminal app that turns YouTube videos into subtitled clips for
-Reels, TikTok and Shorts. Use ChatGPT in your browser to choose the moments;
-the app handles downloading, framing and rendering. No API key or speech
-transcription service is needed.
+Turn a captioned YouTube video into portrait clips in one terminal session.
+Paste a link, send the generated prompt to ChatGPT in your browser, then paste
+its reply back. The app downloads, frames, subtitles and exports the clips.
+Clip creation needs no API key or speech transcription service.
 
 ## Features
 
-- Portrait MP4 clips at **1080×1920, 30 fps**, with burned-in subtitles and active-word highlights.
-- Automatic framing: follow one face, stack two faces, or keep the full picture on black when there are no faces or several. Manual framing remains available.
-- Existing YouTube captions, including automatic captions. Videos without captions are skipped.
-- Downloads run while you use ChatGPT. VA-API GPU encoding is selected when available, with CPU fallback.
-- Each clip includes a TXT with its title, description, hashtags and the full source video title.
-- Automatic clipboard copying for the ChatGPT prompt and, when one clip is created, its publishing text.
-- A selection prompt that compares a larger candidate pool and ranks clips for hook, clarity, payoff and retention.
-- Optional YouTube and Instagram publishing, with scheduling and a local upload queue; TikTok inbox drafts.
-- An opt-in automatic mode that frames and uploads clips using saved choices, without a review step.
+- **1080 × 1920 MP4s**, with large subtitles and a gold highlight on the current word.
+- **Automatic framing:** follow one face, stack two people with subtitles in the
+  middle, or keep the whole picture on black for crowds and scenes without faces.
+  Manual black, face, center-crop and blur options remain available.
+- **Better moment selection:** the prompt compares a wider candidate pool and ranks
+  it for hook, clarity, payoff and retention.
+- **Less waiting:** downloading overlaps the ChatGPT step; encoding uses VA-API
+  when available. Face detection selects a faster GPU backend when supported.
+- **Ready-to-post text:** each MP4 comes with a TXT containing its title,
+  description, hashtags and the full source video title. The prompt and a single
+  clip's publishing text copy to the clipboard automatically.
+- **Optional publishing:** YouTube uploads and native scheduling, Instagram Reels
+  with local scheduling, and TikTok inbox drafts. Review individual clips or use
+  automatic mode with saved destinations and timing.
 
-Finished files go into `output/`. Source videos and working files are temporary
-and removed when the session ends. Publishing is optional; account setup and
-platform limits are covered in [Publishing accounts](docs/publishing.md).
-Word highlights use estimated timing within the existing captions.
+Videos without usable captions are skipped. Word highlight timing is estimated
+from the captions; face tracking detects visible people, not the active speaker.
+Finished files go into `output/`. Source videos and working files are temporary.
 
 ## Requirements
 
-- Linux and Python **3.12+**.
-- `ffmpeg` and `ffprobe`, with libass, AAC and a working H.264 encoder:
-  VA-API, libx264 or libopenh264.
-- Node.js or Deno for yt-dlp's YouTube support.
-- For clipboard integration: `wl-copy`, `xclip`, `xsel` or system Python with GTK 3.
+Linux, **Python 3.12+**, and:
 
-Face tracking uses the bundled [OpenCV YuNet model](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet)
-and compares available CPU and GPU backends, choosing GPU only when it is faster
-on a sample frame. CPU fallback is automatic. Its license is included in `clipper/assets/`.
-Run `youtube-clips doctor` to check encoding and face-detection hardware.
-See [GPU support](docs/gpu.md) for driver details.
+- `ffmpeg` and `ffprobe`, with libass, AAC and H.264 support through VA-API,
+  libx264 or libopenh264.
+- Node.js or Deno for YouTube downloads.
+- `wl-copy`, `xclip`, `xsel`, or system Python with GTK 3 for clipboard support.
+- `xdg-open` for opening clip previews from the terminal.
+
+The bundled face model is [OpenCV YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet);
+its license is included. GPU detection needs a compute driver separate from the
+video encoder's driver. See [GPU support](docs/gpu.md).
 
 ## Install and run
-
-From the project directory:
 
 ```bash
 python3 -m venv .venv
@@ -47,29 +49,38 @@ python -m pip install .
 youtube-clips
 ```
 
-Alternatively, use `uv run clips.py`. With dependencies installed,
-`python clips.py` works too; uv is optional.
+Or use `uv run clips.py`. With dependencies installed, `python clips.py` and
+`python -m clipper` work too. **uv is optional.**
 
-Follow the prompts, paste the generated prompt into ChatGPT, then paste its JSON
-reply into the terminal. Submit with **Ctrl+D**, or type `END` on a new line and
-press Enter.
+Paste ChatGPT's JSON reply and press **Ctrl+D**, or type `END` on a new line and
+press Enter. Everything else is guided in the terminal.
 
-Use `youtube-clips auto` for automatic framing and uploads after pasting the
-ChatGPT reply. Its first run saves your destinations and immediate or spaced
-posting schedule. Change those choices with `youtube-clips auto-setup`.
-TikTok still requires finishing drafts in its app.
+| Command | Purpose |
+| --- | --- |
+| `youtube-clips` | Create clips and optionally review and publish |
+| `youtube-clips auto` | Use automatic framing and upload without clip review |
+| `youtube-clips auto-setup` | Change automatic destinations and timing |
+| `youtube-clips accounts` | Connect or remove publishing accounts |
+| `youtube-clips queue` | Check uploads, cancel jobs or retry failures |
+| `youtube-clips doctor` | Check encoding and face-detection hardware |
+
+The same commands work after `python clips.py` or `uv run clips.py`.
+Automatic mode still uses your manually pasted ChatGPT reply.
+
+Publishing requires developer credentials for the connected platforms. Instagram
+schedules need this computer awake and online; TikTok drafts require finishing
+in its app. See [account setup and scheduling](docs/publishing.md).
 
 ## Build
 
-No compilation is needed to run this Python project. To build an installable wheel
-and source archive:
+Python does not need compiling to run. To build a wheel and source archive:
 
 ```bash
 python -m pip install build
 python -m build
 ```
 
-Packages are written to `dist/`, including the face-detection model and its license.
+Artifacts are written to `dist/`, including the face model and its license.
 
 ## Development
 

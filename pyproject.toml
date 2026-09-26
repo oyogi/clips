@@ -1,7 +1,7 @@
 [project]
 name = "youtube-clips"
-version = "0.1.0"
-description = "Make subtitled YouTube clips in one terminal session with replies pasted from ChatGPT."
+version = "0.2.0"
+description = "Turn captioned YouTube videos into portrait clips, with automatic framing and optional publishing."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

@@ -75,6 +75,10 @@ also accepted. Future times must be at least ten minutes away.
 The detached worker continues after the terminal closes. Keep the output files
 in place until upload completion. Run `youtube-clips queue` to check results,
 restart pending work after a reboot, or cancel jobs that have not started.
+Use `refresh` to update the view, `cancel ID` to cancel a pending upload, or
+`retry ID` to choose another time for a failed, interrupted or cancelled job.
+Retries use the saved caption and the original account and file; they ask you to
+verify that a post does not already exist on the destination.
 This is not a system service: a reboot or logout may stop the worker. Jobs more
 than 15 minutes late are marked failed instead of silently posting at another time.
 

@@ -5,16 +5,18 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 import httpx
-from rich.prompt import Prompt
+from rich.prompt import Confirm, Prompt
 from rich.table import Table
+from rich.text import Text
 
 from ..models import ClipsError
 from ..ui import console
 from .platforms import publish
-from .store import LABELS, accounts, database, fingerprint, jobs, state_directory, update
+from .store import LABELS, accounts, database, fingerprint, jobs, retry, state_directory, update
 
 
 def worker() -> None:
@@ -96,33 +98,89 @@ def start_worker() -> None:
 
 
 def show_queue() -> None:
-    start_worker()
-    entries = jobs()
-    table = Table(box=None, padding=(0, 2), show_edge=False)
-    for column in ("ID", "Destination", "Clip", "State"):
-        table.add_column(column)
-    for entry in entries:
-        table.add_row(
-            str(entry.id), LABELS[entry.job.platform], Path(entry.job.path).name, entry.state
+    from .workflow import posting_time, time_label
+
+    while True:
+        start_worker()
+        entries = jobs()
+        if not entries:
+            console.print("No uploads queued.", style="muted")
+            return
+        console.print(
+            f"\nUploads · local time {datetime.now().astimezone():%H:%M %Z}", style="heading"
         )
-    console.print(table)
-    for entry in entries:
-        if entry.result:
-            console.print(f"{entry.id} · {entry.result}", markup=False)
-    if any(entry.state == "queued" for entry in entries):
-        choice = Prompt.ask(
-            "Cancel queued job ID (Enter to leave running)", default="", console=console
+        table = Table(box=None, padding=(0, 1), show_edge=False, expand=True)
+        table.add_column("ID", style="accent", no_wrap=True)
+        table.add_column("Destination")
+        table.add_column("Clip", ratio=1)
+        table.add_column("Posting time")
+        table.add_column("State")
+        for entry in entries:
+            style = (
+                "success"
+                if entry.state == "done"
+                else "error"
+                if entry.state in ("failed", "check account")
+                else "muted"
+            )
+            table.add_row(
+                str(entry.id),
+                LABELS[entry.job.platform],
+                Text(entry.job.title),
+                time_label(entry.job.when),
+                Text(entry.state, style=style),
+            )
+        console.print(table)
+        for entry in entries:
+            if entry.result:
+                console.print(f"{entry.id} · {entry.result}", markup=False, style="muted")
+        console.print("Uploaded YouTube schedules are managed in YouTube Studio.", style="muted")
+        choice = (
+            Prompt.ask(
+                "refresh · cancel ID · retry ID · Enter to close",
+                default="",
+                show_default=False,
+                console=console,
+            )
+            .strip()
+            .lower()
         )
-        if choice.isdecimal():
+        if not choice:
+            return
+        if choice == "refresh":
+            continue
+        parts = choice.split()
+        if len(parts) != 2 or parts[0] not in ("cancel", "retry") or not parts[1].isdecimal():
+            console.print("Use cancel 3 or retry 3, for example.", style="warning")
+            continue
+        selected = next((entry for entry in entries if entry.id == int(parts[1])), None)
+        if selected is None:
+            console.print("Job not found.", style="warning")
+        elif parts[0] == "cancel":
             with database() as db:
                 changed = db.execute(
                     "UPDATE jobs SET state='cancelled' WHERE id=? AND state='queued'",
-                    (int(choice),),
+                    (selected.id,),
                 ).rowcount
-            console.print("Cancelled." if changed else "Job already started or not found.")
-    console.print(
-        "YouTube schedules already uploaded must be changed in YouTube Studio.", style="muted"
-    )
+            console.print("Cancelled." if changed else "This job has already started or finished.")
+        elif selected.state not in ("failed", "check account", "cancelled"):
+            console.print(
+                "Only failed, interrupted or cancelled jobs can be retried.", style="warning"
+            )
+        else:
+            console.print(selected.job.text, markup=False)
+            console.print(
+                "Check the destination account first: an interrupted upload may already exist."
+            )
+            when = posting_time()
+            if selected.job.platform == "youtube":
+                console.print(
+                    f"YouTube visibility: {'public at the scheduled time' if when else selected.job.privacy}"
+                )
+            if Confirm.ask(
+                "I checked the account; upload this clip again?", default=False, console=console
+            ):
+                retry(selected, when)
 
 
 if __name__ == "__main__":

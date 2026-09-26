@@ -6,7 +6,7 @@ import os
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -55,6 +55,17 @@ def object_data(value: object) -> dict[str, Any]:
     return value
 
 
+def saved_record[T](model: type[T], text: str) -> T:
+    try:
+        return model(**object_data(json.loads(text)))
+    except (TypeError, ValueError) as error:
+        raise ClipsError(
+            "Saved publishing data is unreadable. Check the publishing database in "
+            + str(state_directory())
+            + "."
+        ) from error
+
+
 @dataclass
 class Account:
     platform: Platform
@@ -62,8 +73,17 @@ class Account:
     label: str
     secrets: dict[str, str] = field(default_factory=dict, repr=False)
 
-    def save(self) -> None:
+    def save(self, *, refresh: bool = False) -> None:
         with database() as db:
+            if refresh:
+                db.execute("BEGIN IMMEDIATE")
+                current = db.execute(
+                    "SELECT data FROM accounts WHERE platform=?", (self.platform,)
+                ).fetchone()
+                if not current or object_data(json.loads(current["data"])).get("id") != self.id:
+                    raise ClipsError(
+                        "The account was disconnected or replaced during token refresh."
+                    )
             db.execute(
                 "INSERT OR REPLACE INTO accounts VALUES (?, ?)",
                 (self.platform, json.dumps(asdict(self))),
@@ -73,7 +93,7 @@ class Account:
 def accounts() -> dict[Platform, Account]:
     with database() as db:
         return {
-            row["platform"]: Account(**object_data(json.loads(row["data"])))
+            row["platform"]: saved_record(Account, row["data"])
             for row in db.execute("SELECT * FROM accounts")
         }
 
@@ -119,7 +139,7 @@ def jobs() -> list[SavedJob]:
         return [
             SavedJob(
                 row["id"],
-                Job(**object_data(json.loads(row["data"]))),
+                saved_record(Job, row["data"]),
                 row["due"],
                 row["state"],
                 row["result"],
@@ -131,3 +151,25 @@ def jobs() -> list[SavedJob]:
 def update(job_id: int, state: str, result: str) -> None:
     with database() as db:
         db.execute("UPDATE jobs SET state=?, result=? WHERE id=?", (state, result, job_id))
+
+
+def retry(entry: SavedJob, when: float) -> None:
+    if entry.state not in ("failed", "check account", "cancelled"):
+        raise ClipsError("Only failed, interrupted or cancelled jobs can be retried.")
+    job = replace(
+        entry.job,
+        when=when,
+        privacy="public" if when and entry.job.platform == "youtube" else entry.job.privacy,
+    )
+    with database() as db:
+        changed = db.execute(
+            "UPDATE jobs SET state='queued', result='', data=?, due=? WHERE id=? AND state=?",
+            (
+                json.dumps(asdict(job)),
+                0 if job.platform == "youtube" else when,
+                entry.id,
+                entry.state,
+            ),
+        ).rowcount
+    if not changed:
+        raise ClipsError("This job changed while you were editing it. Open the queue again.")

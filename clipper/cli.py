@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import sqlite3
 import tempfile
 import time
 from collections.abc import Sequence
@@ -88,7 +89,7 @@ def create_clips(
             exports.append(Export(path, clip))
             console.print(f"[success]{path.name}[/success]  [muted]{encoder.kind}[/muted]")
             if note:
-                console.print(Text(note, style="warning"))
+                console.print(Text(note, style="muted"))
         except ClipsError as error:
             console.print(Text(f"Could not render clip {number}: {error}", style="error"))
 
@@ -147,7 +148,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "command",
         nargs="?",
         choices=["auto", "auto-setup", "accounts", "queue", "doctor"],
-        help="automatic mode, saved publishing choices, account connections, or upload status",
+        help="automatic runs, publishing preferences, accounts, uploads, or hardware checks",
     )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
@@ -193,6 +194,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         console.print(
             "[error]Could not reach the publishing service. Check your connection and account setup.[/error]"
         )
+        return 1
+    except sqlite3.Error as error:
+        console.print(Text(f"Publishing database unavailable: {error}", style="error"))
         return 1
     except (ClipsError, OSError) as error:
         console.print(Text(f"Error: {error}", style="error"))

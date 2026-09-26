@@ -3,12 +3,14 @@
 import subprocess
 import time
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
+from rich.markup import escape
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
+from ..clipboard import copy_text
 from ..models import Clip, ClipsError
 from ..ui import console, section
 from .accounts import manage_accounts
@@ -69,8 +71,14 @@ def review(exports: list[Export]) -> list[Export]:
                 description = Prompt.ask(
                     "Description", default=export.clip.description, console=console
                 )
+                tags = Prompt.ask(
+                    "Hashtags", default=" ".join(export.clip.hashtags), console=console
+                )
                 export = replace(
-                    export, clip=replace(export.clip, title=title, description=description)
+                    export,
+                    clip=replace(
+                        export.clip, title=title, description=description, hashtags=tags.split()
+                    ),
                 )
                 export.path.with_suffix(".txt").write_text(
                     export.clip.publishing_text, encoding="utf-8"
@@ -84,6 +92,8 @@ def review(exports: list[Export]) -> list[Export]:
                 export.path.unlink()
                 export.path.with_suffix(".txt").unlink(missing_ok=True)
                 break
+    if len(selected) == 1 and copy_text(selected[0].clip.publishing_text, persist=True):
+        console.print("Publishing text copied.", style="success")
     return selected
 
 
@@ -98,7 +108,9 @@ def choose_platforms() -> list[Platform]:
     selected = []
     for platform, account in connected.items():
         if Confirm.ask(
-            f"Upload to {LABELS[platform]} · {account.label}?", default=False, console=console
+            f"Upload to {LABELS[platform]} · {escape(account.label)}?",
+            default=False,
+            console=console,
         ):
             selected.append(platform)
     return selected
@@ -110,8 +122,17 @@ def make_jobs(
     times: list[float],
     privacy: str,
     made_for_kids: bool,
+    expected_accounts: dict[Platform, str] | None = None,
 ) -> list[Job]:
     connected = accounts()
+    for platform in platforms:
+        if platform not in connected or (
+            expected_accounts is not None
+            and connected[platform].id != expected_accounts.get(platform)
+        ):
+            raise ClipsError(
+                "A selected account changed. Check youtube-clips accounts before uploading."
+            )
     result = []
     for export, when in zip(exports, times, strict=True):
         checksum = fingerprint(export.path)
@@ -126,7 +147,7 @@ def make_jobs(
                 export.clip.publishing_text.strip(),
                 when,
                 checksum,
-                privacy,
+                "public" if when and platform == "youtube" else privacy,
                 made_for_kids,
             )
             validate(job)
@@ -141,6 +162,23 @@ def submit(jobs: list[Job]) -> None:
     console.print("Keep these MP4 files in place until their uploads finish.", style="muted")
 
 
+def posting_time() -> float:
+    while True:
+        value = Prompt.ask("Post at · YYYY-MM-DD HH:MM, or now", default="now", console=console)
+        try:
+            return parse_time(value.strip())
+        except ClipsError as error:
+            console.print(str(error), style="warning", markup=False)
+
+
+def time_label(timestamp: float) -> str:
+    return (
+        datetime.fromtimestamp(timestamp).astimezone().strftime("%Y-%m-%d %H:%M %z")
+        if timestamp
+        else "Now"
+    )
+
+
 def offer_upload(exports: list[Export]) -> None:
     if not Confirm.ask("Upload or schedule these clips?", default=False, console=console):
         return
@@ -151,6 +189,7 @@ def offer_upload(exports: list[Export]) -> None:
     platforms = choose_platforms()
     if not platforms:
         return
+    expected_accounts = {platform: account.id for platform, account in accounts().items()}
     console.print(
         "YouTube: native scheduling. Instagram: this computer must stay awake and online."
     )
@@ -163,15 +202,8 @@ def offer_upload(exports: list[Export]) -> None:
     console.print(f"Local time: {datetime.now().astimezone():%Y-%m-%d %H:%M %Z (%z)}")
     times = []
     for export in exports:
-        while True:
-            value = Prompt.ask(
-                f"{export.path.name} · YYYY-MM-DD HH:MM, or now", default="now", console=console
-            )
-            try:
-                times.append(parse_time(value))
-                break
-            except ClipsError as error:
-                console.print(str(error), style="warning", markup=False)
+        console.print(export.path.name, style="accent")
+        times.append(posting_time())
     privacy = "private"
     made_for_kids = False
     if "youtube" in platforms:
@@ -187,17 +219,12 @@ def offer_upload(exports: list[Export]) -> None:
         made_for_kids = Confirm.ask(
             "Are these clips made for kids?", default=False, console=console
         )
-    jobs = make_jobs(exports, platforms, times, privacy, made_for_kids)
+    jobs = make_jobs(exports, platforms, times, privacy, made_for_kids, expected_accounts)
     table = Table(box=None, padding=(0, 2), show_edge=False)
     for column in ("Clip", "Destination", "Time"):
         table.add_column(column)
     for job in jobs:
-        when = (
-            datetime.fromtimestamp(job.when, UTC).astimezone().strftime("%Y-%m-%d %H:%M %z")
-            if job.when
-            else "Now"
-        )
-        table.add_row(Path(job.path).name, LABELS[job.platform], when)
+        table.add_row(Path(job.path).name, LABELS[job.platform], time_label(job.when))
     console.print(table)
     if Confirm.ask("Send these uploads?", default=False, console=console):
         submit(jobs)

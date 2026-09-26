@@ -104,7 +104,7 @@ def access_token(account: Account, client: httpx.Client) -> str:
             )
         )
         save_token(account, token)
-        account.save()
+        account.save(refresh=True)
     return account.secrets["access_token"]
 
 
@@ -143,7 +143,7 @@ def connect_youtube(client: httpx.Client) -> Account:
         raise ClipsError("This Google account has no accessible YouTube channel.")
     channel = object_data(items[0])
     account.id = required(channel, "id")
-    account.label = required(object_data(channel["snippet"]), "title")
+    account.label = required(object_data(channel.get("snippet")), "title")
     return account
 
 
@@ -194,7 +194,7 @@ def connect_tiktok(client: httpx.Client) -> Account:
             headers={"Authorization": "Bearer " + account.secrets["access_token"]},
         )
     )
-    account.label = required(object_data(object_data(info["data"])["user"]), "display_name")
+    account.label = required(object_data(object_data(info.get("data")).get("user")), "display_name")
     return account
 
 
@@ -218,8 +218,12 @@ def manage_accounts() -> None:
     ):
         with database() as db:
             db.execute("DELETE FROM accounts WHERE platform=?", (platform,))
+            db.execute(
+                "UPDATE jobs SET state='cancelled' WHERE state='queued' AND json_extract(data, '$.platform')=?",
+                (platform,),
+            )
         console.print(
-            "Account removed. Pending uploads to it will fail; remote posts are unchanged."
+            "Account removed; its queued uploads were cancelled. Remote posts are unchanged."
         )
         return
     with httpx.Client(timeout=30) as client:

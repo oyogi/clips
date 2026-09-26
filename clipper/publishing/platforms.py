@@ -193,7 +193,7 @@ def tiktok(client: httpx.Client, job: Job, token: str, checkpoint: Checkpoint) -
             },
         )
     )
-    info = object_data(result["data"])
+    info = object_data(result.get("data"))
     identifier = required(info, "publish_id")
     checkpoint("TikTok upload " + identifier)
     address = upload_url(info.get("upload_url"), "tiktokapis.com")
@@ -217,7 +217,7 @@ def tiktok(client: httpx.Client, job: Job, token: str, checkpoint: Checkpoint) -
         result = data(
             client.post(base + "/status/fetch/", headers=headers, json={"publish_id": identifier})
         )
-        status = object_data(result["data"]).get("status")
+        status = object_data(result.get("data")).get("status")
         if status in ("SEND_TO_USER_INBOX", "PUBLISH_COMPLETE"):
             return "TikTok inbox delivered · finish editing and posting in TikTok · " + identifier
         if status == "FAILED":

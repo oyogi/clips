@@ -8,7 +8,7 @@ from rich.prompt import Confirm, IntPrompt, Prompt
 
 from ..models import ClipsError
 from ..ui import console
-from .store import LABELS, Platform, accounts, database, object_data
+from .store import LABELS, Platform, accounts, database, saved_record
 from .workflow import Export, choose_platforms, make_jobs, submit
 
 
@@ -27,8 +27,14 @@ class Automatic:
             for platform, identifier in self.destinations.items()
         ):
             raise ClipsError("Automatic mode's accounts changed. Run youtube-clips auto-setup.")
-        if self.delay_minutes < 0 or self.interval_minutes < 0:
+        if not (
+            self.delay_minutes == self.interval_minutes == 0
+            or self.delay_minutes >= 10
+            and self.interval_minutes >= 10
+        ):
             raise ClipsError("Invalid automatic posting times. Run youtube-clips auto-setup.")
+        if self.privacy not in ("private", "unlisted", "public"):
+            raise ClipsError("Invalid automatic visibility. Run youtube-clips auto-setup.")
 
     def upload(self, exports: list[Export]) -> None:
         self.validate()
@@ -39,7 +45,16 @@ class Automatic:
             else 0
             for index in range(len(exports))
         ]
-        submit(make_jobs(exports, list(self.destinations), times, self.privacy, self.made_for_kids))
+        submit(
+            make_jobs(
+                exports,
+                list(self.destinations),
+                times,
+                self.privacy,
+                self.made_for_kids,
+                self.destinations,
+            )
+        )
 
 
 def minutes(label: str, default: int) -> int:
@@ -104,7 +119,7 @@ def configure() -> Automatic:
 def load_automatic() -> Automatic:
     with database() as db:
         row = db.execute("SELECT data FROM settings WHERE key='automatic'").fetchone()
-    settings = Automatic(**object_data(json.loads(row["data"]))) if row else configure()
+    settings = saved_record(Automatic, row["data"]) if row else configure()
     settings.validate()
     console.print(
         "Automatic mode · " + ", ".join(LABELS[platform] for platform in settings.destinations),
