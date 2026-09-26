@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .faces import face_commands
+from .faces import FramingPlan, plan_framing, sample_faces, write_commands
 from .models import Clip, ClipsError, Cue, Framing, ProgressCallback, finite_number
 from .subtitles import write_clip_subtitles
 
@@ -116,11 +116,48 @@ def video_filters(
     layout: Framing,
     following: bool = False,
     pixel_filter: str = "format=yuv420p",
+    plan: FramingPlan | None = None,
 ) -> str:
     start = "[0:v]setpts=PTS-STARTPTS,scale=trunc(iw*sar/2)*2:ih,setsar=1,"
     finish = f"setsar=1,ass=captions.ass,{pixel_filter}[v]"
     fit = f"scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2"
     fill = f"scale={width}:{height}:force_original_aspect_ratio=increase:force_divisible_by=2"
+    if layout == "auto" and plan:
+        views = {scene.view for scene in plan.scenes}
+        if views == {"black"}:
+            return start + f"{fit},pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,{finish}"
+        if views == {"face"}:
+            return start + f"{fill},sendcmd=f=face.cmd,crop@face={width}:{height},{finish}"
+        if views == {"split"}:
+            return (
+                start + f"{fill},split=2[first][second];"
+                f"[first]sendcmd=f=top.cmd,crop@top={width}:{height // 2}[top];"
+                f"[second]sendcmd=f=bottom.cmd,crop@bottom={width}:{height // 2}[bottom];"
+                f"[top][bottom]vstack=inputs=2,{finish}"
+            )
+        parts = [
+            start + "split=2[whole][people]",
+            f"[whole]{fit},pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black[full]",
+            f"[people]{fill},split=3[single][first][second]",
+            f"[single]sendcmd=f=face.cmd,crop@face={width}:{height}[face]",
+            f"[first]sendcmd=f=top.cmd,crop@top={width}:{height // 2}[top]",
+            f"[second]sendcmd=f=bottom.cmd,crop@bottom={width}:{height // 2}[bottom]",
+            "[top][bottom]vstack=inputs=2[pair]",
+        ]
+        for view, foreground, background, result in (
+            ("face", "face", "full", "composed"),
+            ("split", "pair", "composed", "framed"),
+        ):
+            enabled = (
+                "+".join(
+                    f"gte(t,{scene.start:.6f})*lt(t,{scene.end:.6f})"
+                    for scene in plan.scenes
+                    if scene.view == view
+                )
+                or "0"
+            )
+            parts.append(f"[{background}][{foreground}]overlay=0:0:enable='{enabled}'[{result}]")
+        return ";".join(parts + [f"[framed]{finish}"])
     if layout == "blur":
         small_w, small_h = width // 8 * 2, height // 8 * 2
         return (
@@ -185,7 +222,7 @@ def render_clip(
     output: Path,
     number: int,
     encoder: Encoder,
-    layout: Framing = "blur",
+    layout: Framing = "auto",
     progress: ProgressCallback | None = None,
 ) -> tuple[Path, str]:
     check_media(source, end=clip.end)
@@ -195,14 +232,31 @@ def render_clip(
     note = ""
     with tempfile.TemporaryDirectory(prefix=".render-", dir=output) as temporary:
         work = Path(temporary)
-        write_clip_subtitles(cues, clip.start, clip.end, work, width, height)
         following = False
-        if layout == "face":
+        plan = None
+        if layout in ("auto", "face"):
             if progress:
-                progress("Tracking faces", 0.0)
-            following = face_commands(source, clip, width, height, work / "face.cmd", progress)
-            if not following:
-                note = "No face found; used a centered crop."
+                progress("Finding faces", 0.0)
+            try:
+                samples = sample_faces(source, clip, progress)
+                plan = plan_framing(samples, clip.duration)
+                following = any(sample.faces for sample in samples)
+                write_commands(plan, work, width, height, clip.duration)
+                note = plan.summary if layout == "auto" else ""
+                if layout == "face" and not following:
+                    note = "No face found; used the full picture on black."
+                    layout = "black"
+            except ClipsError as error:
+                layout, note = "black", f"{error} Used the full picture on black."
+        write_clip_subtitles(
+            cues,
+            clip.start,
+            clip.end,
+            work,
+            width,
+            height,
+            plan.split_ranges if plan and layout == "auto" else (),
+        )
         if progress:
             progress("Encoding", 0.0)
         encode(
@@ -219,7 +273,7 @@ def render_clip(
                 "-t",
                 f"{clip.duration:.3f}",
                 "-filter_complex",
-                video_filters(width, height, layout, following, encoder.pixel_filter),
+                video_filters(width, height, layout, following, encoder.pixel_filter, plan),
             ]
             + "-map [v] -map 0:a:0 -af asetpts=PTS-STARTPTS".split()
             + encoder.video_options

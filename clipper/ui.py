@@ -44,10 +44,11 @@ THEME = Theme(
 )
 console = Console(highlight=False, theme=THEME)
 LAYOUTS: tuple[tuple[str, str, Framing], ...] = (
-    ("Blur", "Full picture, blurred background", "blur"),
+    ("Auto", "One face: follow · Two: split · Otherwise: full picture", "auto"),
     ("Black", "Full picture, black background", "black"),
-    ("Crop", "Fixed crop from the center", "crop"),
     ("Faces", "Crop follows a visible face", "face"),
+    ("Crop", "Fixed crop from the center", "crop"),
+    ("Blur", "Full picture, blurred background", "blur"),
 )
 
 
@@ -86,7 +87,12 @@ def choose_layout() -> Framing:
     console.print()
     console.print(table)
     console.print()
-    answer = Prompt.ask("Framing", choices=["1", "2", "3", "4"], default="1", console=console)
+    answer = Prompt.ask(
+        "Framing",
+        choices=[str(i) for i in range(1, len(LAYOUTS) + 1)],
+        default="1",
+        console=console,
+    )
     return LAYOUTS[int(answer) - 1][2]
 
 

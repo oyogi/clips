@@ -5,6 +5,7 @@ import json
 import re
 import textwrap
 from collections.abc import Iterable, Sequence
+from itertools import pairwise
 from pathlib import Path
 
 import pysubs2
@@ -112,6 +113,7 @@ def write_clip_subtitles(
     directory: Path,
     width: int = 1080,
     height: int = 1920,
+    middle_ranges: Sequence[tuple[float, float]] = (),
 ) -> None:
     subs = pysubs2.SSAFile()
     subs.info.update({"PlayResX": str(width), "PlayResY": str(height), "WrapStyle": "2"})
@@ -143,13 +145,27 @@ def write_clip_subtitles(
                 + r"{\r}"
                 + text[word.end() :]
             )
-            subs.append(
-                pysubs2.SSAEvent(
-                    start=word_start,
-                    end=word_end,
-                    text=highlighted.replace("\n", r"\N"),
-                )
+            boundaries = sorted(
+                {word_start, word_end}
+                | {
+                    round(boundary * 1000)
+                    for interval in middle_ranges
+                    for boundary in interval
+                    if word_start < round(boundary * 1000) < word_end
+                }
             )
+            for event_start, event_end in pairwise(boundaries):
+                middle = any(
+                    left * 1000 <= event_start < right * 1000 for left, right in middle_ranges
+                )
+                position = rf"{{\an5\pos({width // 2},{height // 2})}}" if middle else ""
+                subs.append(
+                    pysubs2.SSAEvent(
+                        start=event_start,
+                        end=event_end,
+                        text=position + highlighted.replace("\n", r"\N"),
+                    )
+                )
     if not subs:
         raise ClipsError("Selected interval contains no subtitles.")
     subs.save(str(directory / "captions.ass"), encoding="utf-8")
