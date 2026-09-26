@@ -14,9 +14,11 @@ transcription service is needed.
 - Each clip includes a TXT with its title, description, hashtags and the full source video title.
 - Automatic clipboard copying for the ChatGPT prompt and, when one clip is created, its publishing text.
 - A selection prompt that compares a larger candidate pool and ranks clips for hook, clarity, payoff and retention.
+- Optional YouTube and Instagram publishing, with scheduling and a local upload queue; TikTok inbox drafts.
 
 Finished files go into `output/`. Source videos and working files are temporary
-and removed when the session ends. Uploading to social media is manual.
+and removed when the session ends. Publishing is optional; account setup and
+platform limits are covered in [Publishing accounts](docs/publishing.md).
 Word highlights use estimated timing within the existing captions.
 
 ## Requirements

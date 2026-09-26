@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 from rich.prompt import IntPrompt, Prompt
 from rich.text import Text
 
@@ -16,6 +17,7 @@ from .clipboard import copy_text
 from .download import SourceDownload
 from .manual import make_prompt, parse_reply
 from .models import Clip, ClipsError, Framing, Transcript
+from .publishing.workflow import Export, offer_upload
 from .render import Encoder, check_encoder, render_clip
 from .ui import console
 from .youtube import read_transcript
@@ -69,7 +71,7 @@ def create_clips(
     layout: Framing,
 ) -> int:
     output = Path("output") / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    paths = []
+    exports: list[Export] = []
     started = time.monotonic()
     for number, clip in enumerate(clips, 1):
         label = Text(f"{number:02d}  ", style="accent")
@@ -81,7 +83,7 @@ def create_clips(
                 path, note = render_clip(
                     source, clip, transcript.cues, output, number, encoder, layout, update
                 )
-            paths.append(path)
+            exports.append(Export(path, clip))
             console.print(f"[success]{path.name}[/success]  [muted]{encoder.kind}[/muted]")
             if note:
                 console.print(Text(note, style="warning"))
@@ -89,15 +91,17 @@ def create_clips(
             console.print(Text(f"Could not render clip {number}: {error}", style="error"))
 
     elapsed = time.monotonic() - started
-    if not paths:
+    if not exports:
         console.print("[error]No clips were created.[/error]")
         return 1
     copied = False
+    paths = [export.path for export in exports]
     if len(paths) == 1:
         copied = copy_text(paths[0].with_suffix(".txt").read_text(encoding="utf-8"), persist=True)
         if not copied:
             console.print("[warning]Clipboard unavailable; use the TXT file.[/warning]")
     ui.summary(paths, len(clips), elapsed, copied)
+    offer_upload(exports)
     return 0 if len(paths) == len(clips) else 1
 
 
@@ -131,12 +135,34 @@ def run() -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         description="Make portrait clips from a YouTube video using ChatGPT in your browser."
-    ).parse_args(argv)
+    )
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=["accounts", "queue"],
+        help="connect publishing accounts or check scheduled uploads",
+    )
+    args = parser.parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
     try:
+        if args.command == "accounts":
+            from .publishing.accounts import manage_accounts
+
+            manage_accounts()
+            return 0
+        if args.command == "queue":
+            from .publishing.queue import show_queue
+
+            show_queue()
+            return 0
         return run()
+    except httpx.HTTPError:
+        console.print(
+            "[error]Could not reach the publishing service. Check your connection and account setup.[/error]"
+        )
+        return 1
     except (ClipsError, OSError) as error:
         console.print(Text(f"Error: {error}", style="error"))
         return 1

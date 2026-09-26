@@ -223,7 +223,7 @@ def render_clip(
             ]
             + "-map [v] -map 0:a:0 -af asetpts=PTS-STARTPTS".split()
             + encoder.video_options
-            + "-r 30 -c:a aac -b:a 192k -ar 48000 -movflags +faststart -map_metadata -1 video.mp4".split(),
+            + "-r 30 -c:a aac -b:a 128k -ar 48000 -ac 2 -movflags +faststart -map_metadata -1 video.mp4".split(),
             work,
             clip.duration,
             progress,
