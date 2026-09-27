@@ -23,11 +23,11 @@ def clean_text(text: str) -> str:
 
 def normalize_cues(rows: Iterable[tuple[float, float, str]]) -> list[Cue]:
     cleaned: list[tuple[float, float, str]] = []
-    for start, end, text in sorted(rows, key=lambda row: row[0]):
-        text = clean_text(text)
-        if not text or not finite_number(start) or not finite_number(end):
+    for raw_start, raw_end, raw_text in sorted(rows, key=lambda row: row[0]):
+        text = clean_text(raw_text)
+        if not text or not finite_number(raw_start) or not finite_number(raw_end):
             continue
-        start, end = max(0.0, start), max(0.0, end)
+        start, end = max(0.0, raw_start), max(0.0, raw_end)
         if end <= start:
             continue
         if cleaned and start == cleaned[-1][0]:

@@ -75,7 +75,8 @@ class SourceDownload:
 
     def _stop(self, sig: signal.Signals) -> None:
         pid = self._process.pid
-        assert pid is not None
+        if pid is None:
+            return
         try:
             if os.getpgid(pid) == pid:
                 os.killpg(pid, sig)

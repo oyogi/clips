@@ -29,8 +29,7 @@ class Automatic:
             raise ClipsError("Automatic mode's accounts changed. Run youtube-clips auto-setup.")
         if not (
             self.delay_minutes == self.interval_minutes == 0
-            or self.delay_minutes >= 10
-            and self.interval_minutes >= 10
+            or (self.delay_minutes >= 10 and self.interval_minutes >= 10)
         ):
             raise ClipsError("Invalid automatic posting times. Run youtube-clips auto-setup.")
         if self.privacy not in ("private", "unlisted", "public"):

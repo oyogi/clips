@@ -6,7 +6,7 @@ import sqlite3
 import tempfile
 import time
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -73,7 +73,7 @@ def create_clips(
     layout: Framing,
     automatic: Automatic | None = None,
 ) -> int:
-    output = Path("output") / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    output = Path("output") / datetime.now(UTC).astimezone().strftime("%Y%m%d-%H%M%S-%f")
     exports: list[Export] = []
     started = time.monotonic()
     for number, clip in enumerate(clips, 1):

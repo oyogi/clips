@@ -133,10 +133,9 @@ def sample_faces(source: Path, clip: Clip, progress: ProgressCallback | None) ->
         raise ClipsError("Face detection failed; try Black framing.") from error
     finally:
         capture.release()
-    if not samples:
+    if not samples or detector is None:
         raise ClipsError("Could not read frames for face tracking.")
     samples[0] = Sample(0, samples[0].faces, True)
-    assert detector is not None
     return FaceScan(samples, detector.label)
 
 

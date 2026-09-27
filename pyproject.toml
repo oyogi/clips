@@ -38,7 +38,15 @@ target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "I", "UP", "B", "ANN"]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "ANN", "C4", "DTZ", "PIE", "PLW", "RUF", "S"]
+allowed-confusables = ["×", "–", "＼", "｛", "｝"]
+
+[tool.ruff.lint.per-file-ignores]
+# Commands use argument lists; clipboard text is sent over stdin.
+"clipper/clipboard.py" = ["S603"]
+"clipper/render.py" = ["S603"]
+# The clip-selection prompt is prose, not an SQL query.
+"clipper/manual.py" = ["S608"]
 
 [tool.mypy]
 python_version = "3.12"

@@ -73,6 +73,10 @@ TikTok drafts require finishing in its app; its production approval rules exclud
 apps intended only for personal use. See [account setup and scheduling](docs/publishing.md)
 for the current dashboard steps and sandbox limitations.
 
+To prepare a batch and then turn the computer off, use YouTube's native scheduling
+and schedule the exported MP4s directly in TikTok Studio and Instagram. The local
+Instagram/TikTok queue cannot run while the computer is off.
+
 ## Build
 
 Python does not need compiling to run. To build a wheel and source archive:
@@ -94,6 +98,12 @@ uv run ruff check .
 uv run ruff format --check .
 uv run mypy
 ```
+
+Ruff rules are defined in `pyproject.toml`. The project’s Zed settings give that
+file priority over global editor rules, so editor and terminal checks agree.
+Restart the Ruff language server after changing these settings. Docstrings for
+every method, per-file copyright headers, and numeric-literal style rules are
+not required; Ruff's formatter handles layout.
 
 ## License
 

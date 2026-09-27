@@ -13,11 +13,38 @@ Credentials are stored in a private database under
 `${XDG_STATE_HOME:-~/.local/state}/youtube-clips/`, outside the repository.
 They are protected by filesystem permissions, not encrypted.
 
-| Destination | Setup route | What this program sends |
+| Destination | What this program schedules | Can the computer turn off after uploading? |
 | --- | --- | --- |
-| [YouTube](#youtube) | Google Desktop OAuth client | A video, optionally with a native publication schedule |
-| [Instagram](#instagram) | Meta's Instagram use case **with Facebook Login** | A Reel uploaded directly from your computer |
-| [TikTok](#tiktok-drafts) | Login Kit + Content Posting API; sandbox or approved app | An inbox draft that you finish in TikTok |
+| [YouTube](#youtube) | Public publication by YouTube | Yes, once YouTube accepts the upload and schedule |
+| [Instagram](#instagram) | A local worker uploads and publishes a Reel at the chosen time | Keep it online until the worker has finished at that time |
+| [TikTok](#tiktok-drafts) | A local worker delivers an inbox draft | Keep it online until delivery; then finish posting in TikTok |
+
+## Prepare a batch, then turn the computer off
+
+For this workflow, use the exported MP4 and TXT files with the platforms' own
+schedulers. Their servers retain the accepted schedules:
+
+- **YouTube:** use this program's upload and scheduling flow below.
+- **TikTok:** upload the MP4 in [TikTok Studio](https://www.tiktok.com/tiktokstudio),
+  paste the TXT caption, choose a future time, and finish scheduling. Confirm that
+  the video appears in your scheduled posts. TikTok documents scheduling in its
+  [creator tools](https://support.tiktok.com/en/using-tiktok/creating-videos/creator-tools-on-tiktok).
+- **Instagram:** use a professional account and schedule the exported Reel in
+  Instagram's publishing screen. Review it under **Scheduled content** before
+  closing the app. See [Instagram's scheduling guide](https://www.facebook.com/help/instagram/439971288310029).
+
+The Instagram and TikTok API integrations in this project do not hand a future
+publication time to the platform. Their queue is stored on this computer.
+Sandbox or testing mode does not change where that queue runs. TikTok also
+[excludes public posting in Sandbox](https://developers.tiktok.com/docs/en/add-a-sandbox);
+unaudited Direct Post clients are [limited to private posts](https://developers.tiktok.com/docs/en/content-sharing-guidelines).
+
+A hosted publishing service can keep a queue running while your computer is off.
+For example, [Upload-Post documents scheduling for all three platforms](https://docs.upload-post.com/api/reference/#schedule-management).
+It requires its own account and API key. Another possible approach is browser
+automation that fills in the platforms' native scheduling screens while your
+computer is on. This project implements neither approach; browser automation
+would need separate development and testing.
 
 ## YouTube
 

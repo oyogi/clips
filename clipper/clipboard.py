@@ -6,40 +6,43 @@ import select
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
-_holder: subprocess.Popen[bytes] | None = None
-_keep_alive = False
+
+@dataclass
+class ClipboardOwner:
+    """Keep the GTK helper alive while it owns the clipboard selection."""
+
+    process: subprocess.Popen[bytes] | None = None
+    persist: bool = False
+
+    def close(self) -> None:
+        if self.process is not None:
+            if self.process.poll() is None:
+                self.process.terminate()
+                try:
+                    self.process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait()
+            if self.process.stdout:
+                self.process.stdout.close()
+            if self.process.stdin and not self.process.stdin.closed:
+                self.process.stdin.close()
+            self.process = None
+        self.persist = False
+
+    def cleanup(self) -> None:
+        if not self.persist:
+            self.close()
 
 
-def close_clipboard() -> None:
-    global _holder, _keep_alive
-    if _holder is not None:
-        if _holder.poll() is None:
-            _holder.terminate()
-            try:
-                _holder.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                _holder.kill()
-                _holder.wait()
-        if _holder.stdout:
-            _holder.stdout.close()
-        if _holder.stdin and not _holder.stdin.closed:
-            _holder.stdin.close()
-        _holder = None
-    _keep_alive = False
-
-
-def _cleanup() -> None:
-    if not _keep_alive:
-        close_clipboard()
-
-
-atexit.register(_cleanup)
+_owner = ClipboardOwner()
+atexit.register(_owner.cleanup)
 
 
 def copy_text(text: str, *, persist: bool = False) -> bool:
-    global _holder, _keep_alive
     commands = []
     if os.environ.get("WAYLAND_DISPLAY"):
         commands.append(["wl-copy", "--type", "text/plain;charset=utf-8"])
@@ -55,6 +58,7 @@ def copy_text(text: str, *, persist: bool = False) -> bool:
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     timeout=5,
+                    check=False,
                 )
                 if result.returncode == 0:
                     return True
@@ -63,7 +67,7 @@ def copy_text(text: str, *, persist: bool = False) -> bool:
 
     if not commands or not Path("/usr/bin/python3").is_file():
         return False
-    close_clipboard()
+    _owner.close()
     environment = os.environ.copy()
     if environment.get("DISPLAY"):
         environment["GDK_BACKEND"] = "x11"
@@ -71,7 +75,7 @@ def copy_text(text: str, *, persist: bool = False) -> bool:
         args = ["/usr/bin/python3", str(Path(__file__).resolve())]
         if persist:
             args.append("--persist")
-        _holder = subprocess.Popen(
+        process = subprocess.Popen(
             args,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -79,16 +83,18 @@ def copy_text(text: str, *, persist: bool = False) -> bool:
             env=environment,
             start_new_session=True,
         )
-        assert _holder.stdin is not None and _holder.stdout is not None
-        _holder.stdin.write(text.encode("utf-8"))
-        _holder.stdin.close()
-        ready, _, _ = select.select([_holder.stdout], [], [], 5)
-        if ready and _holder.stdout.readline() == b"ready\n":
-            _keep_alive = persist
+        _owner.process = process
+        if process.stdin is None or process.stdout is None:
+            raise OSError("The clipboard helper did not open its pipes.")
+        process.stdin.write(text.encode("utf-8"))
+        process.stdin.close()
+        ready, _, _ = select.select([process.stdout], [], [], 5)
+        if ready and process.stdout.readline() == b"ready\n":
+            _owner.persist = persist
             return True
     except OSError:
         pass
-    close_clipboard()
+    _owner.close()
     return False
 
 

@@ -1,0 +1,11 @@
+{
+  "lsp": {
+    "ruff": {
+      "initialization_options": {
+        "settings": {
+          "configurationPreference": "filesystemFirst"
+        }
+      }
+    }
+  }
+}

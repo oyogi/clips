@@ -44,7 +44,7 @@ class Encoder:
 
 def command(args: list[str], timeout: float = 30) -> str:
     try:
-        result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(args, capture_output=True, text=True, timeout=timeout, check=False)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise ClipsError(f"Could not run {args[0]}: {error}") from error
     if result.returncode:
@@ -91,7 +91,18 @@ def check_encoder() -> Encoder:
 def check_media(path: Path, end: float | None = None, size: tuple[int, int] | None = None) -> float:
     try:
         info = json.loads(
-            command("ffprobe -v error -show_streams -show_format -of json".split() + [str(path)])
+            command(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_streams",
+                    "-show_format",
+                    "-of",
+                    "json",
+                    str(path),
+                ]
+            )
         )
     except ValueError as error:
         raise ClipsError("ffprobe returned invalid video information.") from error
@@ -156,7 +167,7 @@ def video_filters(
                 or "0"
             )
             parts.append(f"[{background}][{foreground}]overlay=0:0:enable='{enabled}'[{result}]")
-        return ";".join(parts + [f"[framed]{finish}"])
+        return ";".join([*parts, f"[framed]{finish}"])
     return start + f"{fit},pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,{finish}"
 
 
@@ -171,7 +182,9 @@ def encode(args: list[str], work: Path, duration: float, progress: ProgressCallb
             stderr=errors,
             text=True,
         ) as process:
-            assert process.stdout is not None
+            if process.stdout is None:
+                process.kill()
+                raise ClipsError("FFmpeg did not open its progress pipe.")
             timer = threading.Timer(max(180, duration * 30), process.kill)
             timer.daemon = True
             timer.start()

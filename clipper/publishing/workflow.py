@@ -2,7 +2,7 @@
 
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from rich.markup import escape
@@ -33,7 +33,8 @@ def parse_time(value: str) -> float:
         chosen = datetime.fromisoformat(value)
         if chosen.tzinfo is None:
             timestamp = chosen.timestamp()
-            if datetime.fromtimestamp(timestamp) != chosen:
+            local = datetime.fromtimestamp(timestamp, UTC).astimezone().replace(tzinfo=None)
+            if local != chosen:
                 raise ValueError("This local time does not exist.")
             if chosen.replace(fold=0).timestamp() != chosen.replace(fold=1).timestamp():
                 raise ValueError("This local time is ambiguous. Include a UTC offset, e.g. -03:00.")

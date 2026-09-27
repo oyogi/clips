@@ -19,8 +19,8 @@ from .http import data, error_code, required
 from .store import LABELS, PLATFORMS, Account, accounts, database, object_data
 
 GRAPH = "https://graph.facebook.com/v25.0"
-GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
-TIKTOK_TOKEN = "https://open.tiktokapis.com/v2/oauth/token/"
+GOOGLE_OAUTH_URL = "https://oauth2.googleapis.com/token"
+TIKTOK_OAUTH_URL = "https://open.tiktokapis.com/v2/oauth/token/"
 CALLBACK = "http://127.0.0.1:8765/callback/"
 INSTAGRAM_PERMISSIONS = (
     "pages_show_list",
@@ -110,7 +110,7 @@ def access_token(account: Account, client: httpx.Client) -> str:
         key = "client_key" if account.platform == "tiktok" else "client_id"
         token = data(
             client.post(
-                TIKTOK_TOKEN if key == "client_key" else GOOGLE_TOKEN,
+                TIKTOK_OAUTH_URL if key == "client_key" else GOOGLE_OAUTH_URL,
                 data={
                     key: account.secrets[key],
                     "client_secret": account.secrets["client_secret"],
@@ -141,7 +141,7 @@ def connect_youtube(client: httpx.Client) -> Account:
             "scope": "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly",
         },
     )
-    token = data(client.post(GOOGLE_TOKEN, data={**credentials, **code}))
+    token = data(client.post(GOOGLE_OAUTH_URL, data={**credentials, **code}))
     account = Account("youtube", "", "", credentials)
     save_token(account, token)
     info = data(
@@ -293,7 +293,7 @@ def connect_tiktok(client: httpx.Client) -> Account:
         },
         tiktok=True,
     )
-    token = data(client.post(TIKTOK_TOKEN, data={**credentials, **code}))
+    token = data(client.post(TIKTOK_OAUTH_URL, data={**credentials, **code}))
     if "video.upload" not in str(token.get("scope", "")).split(","):
         raise ClipsError(
             "TikTok did not grant video.upload. Check Products → Content Posting API and Scopes "
