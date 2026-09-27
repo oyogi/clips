@@ -15,12 +15,19 @@ from rich.prompt import Prompt
 
 from ..models import ClipsError
 from ..ui import console
-from .http import data, required
+from .http import data, error_code, required
 from .store import LABELS, PLATFORMS, Account, accounts, database, object_data
 
 GRAPH = "https://graph.facebook.com/v25.0"
 GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
 TIKTOK_TOKEN = "https://open.tiktokapis.com/v2/oauth/token/"
+CALLBACK = "http://127.0.0.1:8765/callback/"
+INSTAGRAM_PERMISSIONS = (
+    "pages_show_list",
+    "pages_read_engagement",
+    "instagram_basic",
+    "instagram_content_publish",
+)
 
 
 def authorize(url: str, parameters: dict[str, str], *, tiktok: bool = False) -> dict[str, str]:
@@ -50,12 +57,11 @@ def authorize(url: str, parameters: dict[str, str], *, tiktok: bool = False) -> 
 
     with HTTPServer(("127.0.0.1", 8765), Callback) as server:
         server.timeout = 1
-        redirect = "http://127.0.0.1:8765/callback/"
         parameters = {
             **parameters,
             "state": state,
             "response_type": "code",
-            "redirect_uri": redirect,
+            "redirect_uri": CALLBACK,
             "code_challenge": challenge,
             "code_challenge_method": "S256",
         }
@@ -66,11 +72,21 @@ def authorize(url: str, parameters: dict[str, str], *, tiktok: bool = False) -> 
         deadline = time.monotonic() + 300
         while not result and time.monotonic() < deadline:
             server.handle_request()
-    if "code" not in result:
+    if result.get("error"):
+        hint = (
+            "Check Login Kit → Desktop, Scopes and Sandbox target users in TikTok's portal. "
+            "See docs/publishing.md#tiktok-drafts."
+            if tiktok
+            else "Check the app's OAuth settings and test users in Google Cloud Console."
+        )
+        if result["error"] == "access_denied":
+            hint = "Access was denied. Connect again and approve the requested permissions."
+        raise ClipsError(f"Account authorization failed{error_code(result)}. {hint}")
+    if not result.get("code"):
         raise ClipsError("Account connection was cancelled or timed out.")
     return {
         "code": result["code"],
-        "redirect_uri": redirect,
+        "redirect_uri": CALLBACK,
         "code_verifier": verifier,
         "grant_type": "authorization_code",
     }
@@ -149,15 +165,26 @@ def connect_youtube(client: httpx.Client) -> Account:
 
 def connect_instagram(client: httpx.Client) -> Account:
     console.print(
-        "Instagram needs a professional account linked to a Facebook Page.\n"
+        "Instagram · Business or Creator account linked to a Facebook Page\n"
         "Setup guide: docs/publishing.md#instagram\n"
-        "Get your App ID and App secret from developers.facebook.com/apps.\n"
-        "Generate a User access token at developers.facebook.com/tools/explorer."
+        "Meta dashboard: https://developers.facebook.com/apps/\n"
+        "Use case: Manage messaging and content on Instagram\n"
+        "Customize → API setup with Facebook Login → Add all required permissions\n"
+        "Use App settings → Basic for the Meta App ID and App secret.\n"
+        "Instagram Login tokens cannot upload this app's local MP4 files."
     )
     app_id = Prompt.ask("Meta App ID", console=console).strip()
     if not app_id.isdecimal():
         raise ClipsError("The Meta App ID is the number in App settings → Basic.")
+    console.print(f"App settings: https://developers.facebook.com/apps/{app_id}/settings/basic/")
     secret = Prompt.ask("Meta App secret", password=True, console=console).strip()
+    console.print(
+        "Token: https://developers.facebook.com/tools/explorer/\n"
+        "Select the same Meta App, then User or Page → Get User Access Token.\n"
+        "Add these permissions before generating the token:\n"
+        + ", ".join(INSTAGRAM_PERMISSIONS)
+        + "\nApprove access to your Facebook Page and its linked Instagram account."
+    )
     token = Prompt.ask(
         "User access token from Graph API Explorer", password=True, console=console
     ).strip()
@@ -186,15 +213,13 @@ def connect_instagram(client: httpx.Client) -> Account:
         for item in map(object_data, permissions)
         if item.get("status") == "granted"
     }
-    missing = {
-        "pages_show_list",
-        "pages_read_engagement",
-        "instagram_basic",
-        "instagram_content_publish",
-    } - granted
+    missing = set(INSTAGRAM_PERMISSIONS) - granted
     if missing:
         raise ClipsError(
-            "Generate a new User token with these permissions: " + ", ".join(sorted(missing))
+            "Generate a new User token with these permissions: "
+            + ", ".join(sorted(missing))
+            + ". If they are absent from Explorer, check API setup with Facebook Login in "
+            "your app's Instagram use case. See docs/publishing.md#instagram."
         )
     found: dict[str, tuple[Account, str]] = {}
     parameters = {
@@ -246,13 +271,20 @@ def connect_tiktok(client: httpx.Client) -> Account:
     console.print("TikTok uploads go to your inbox. Finish editing and posting in TikTok.")
     console.print(
         "Setup guide: docs/publishing.md#tiktok-drafts\n"
-        "Your developer app needs Login Kit (Desktop) and Content Posting API with video.upload.\n"
-        "Register this exact redirect URI: http://127.0.0.1:8765/callback/"
+        "Sandbox is for testing; TikTok production review excludes personal-only apps.\n"
+        "https://developers.tiktok.com/ → profile menu → Manage apps → your app\n"
+        "Products → Add products: Login Kit and Content Posting API\n"
+        "Login Kit → Desktop → Redirect URI: " + CALLBACK + "\n"
+        "Scopes: user.info.basic and video.upload\n"
+        "In Sandbox, add your account under Sandbox settings → Target users, then Apply changes.\n"
+        "Copy Client key and Client secret from App details → Credentials in that environment."
     )
     credentials = {
         "client_key": Prompt.ask("TikTok client key", console=console).strip(),
         "client_secret": Prompt.ask("TikTok client secret", password=True, console=console).strip(),
     }
+    if not all(credentials.values()):
+        raise ClipsError("Enter both values from TikTok App details → Credentials.")
     code = authorize(
         "https://www.tiktok.com/v2/auth/authorize/",
         {
@@ -264,8 +296,9 @@ def connect_tiktok(client: httpx.Client) -> Account:
     token = data(client.post(TIKTOK_TOKEN, data={**credentials, **code}))
     if "video.upload" not in str(token.get("scope", "")).split(","):
         raise ClipsError(
-            "TikTok video.upload permission was not granted. Add Content Posting API and its "
-            "video.upload scope in the developer portal, complete TikTok's required review, "
+            "TikTok did not grant video.upload. Check Products → Content Posting API and Scopes "
+            "in the environment matching your credentials. Sandbox needs your account in "
+            "Target users; Production needs TikTok's scope approval. Apply or submit the changes, "
             "then connect again. See docs/publishing.md#tiktok-drafts."
         )
     account = Account("tiktok", required(token, "open_id"), "", credentials)

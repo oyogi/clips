@@ -68,8 +68,10 @@ The same commands work after `python clips.py` or `uv run clips.py`.
 Automatic mode still uses your manually pasted ChatGPT reply.
 
 Publishing requires developer credentials for the connected platforms. Instagram
-schedules need this computer awake and online; TikTok drafts require finishing
-in its app. See [account setup and scheduling](docs/publishing.md).
+uses Meta's Facebook Login integration and needs this computer online for schedules.
+TikTok drafts require finishing in its app; its production approval rules exclude
+apps intended only for personal use. See [account setup and scheduling](docs/publishing.md)
+for the current dashboard steps and sandbox limitations.
 
 ## Build
 

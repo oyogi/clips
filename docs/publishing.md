@@ -1,5 +1,8 @@
 # Publishing accounts
 
+Instagram and TikTok setup checked against official documentation on **27 September 2026**.
+The steps below use the dashboards' English labels.
+
 Clips work without connected accounts. Uploading uses the platforms' official APIs,
 which require developer app credentials and an account you control. These are
 separate from ChatGPT; no OpenAI API key is needed.
@@ -9,6 +12,12 @@ per platform. Repeating the command lets you replace or disconnect an account.
 Credentials are stored in a private database under
 `${XDG_STATE_HOME:-~/.local/state}/youtube-clips/`, outside the repository.
 They are protected by filesystem permissions, not encrypted.
+
+| Destination | Setup route | What this program sends |
+| --- | --- | --- |
+| [YouTube](#youtube) | Google Desktop OAuth client | A video, optionally with a native publication schedule |
+| [Instagram](#instagram) | Meta's Instagram use case **with Facebook Login** | A Reel uploaded directly from your computer |
+| [TikTok](#tiktok-drafts) | Login Kit + Content Posting API; sandbox or approved app | An inbox draft that you finish in TikTok |
 
 ## YouTube
 
@@ -31,35 +40,75 @@ cannot remove Google's verification or account restrictions.
 
 ## Instagram
 
-This app uses **Instagram API with Facebook Login**. You need an Instagram
-**Business or Creator** account, a Facebook Page linked to it, and a Facebook
-user with full control of that Page. A personal Instagram account will not work.
-Meta also offers an Instagram Login integration; its credentials and permissions
-are different. Follow the Facebook Login setup below.
+Start in **Meta for Developers**, not Meta Business Suite. In the app creation
+wizard, the option is **Manage messaging and content on Instagram**. You choose
+**Facebook Login later**, inside that use case.
 
-### 1. Prepare the account and Meta app
+This program uses Facebook Login because Meta documents direct local video uploads
+for that integration. Instagram Login has different tokens and uses a public video
+URL for publishing. A token from its **Generate access tokens** panel will not work
+here. See Meta's [publishing requirements](https://developers.facebook.com/documentation/instagram-platform/content-publishing).
 
-1. In Instagram settings, switch to a professional account if needed. In your
-   Facebook Page's settings, open **Linked accounts** and connect that Instagram
-   account. Confirm that you can manage this Page from your Facebook user.
-2. Open [Meta's app dashboard](https://developers.facebook.com/apps/) and create
-   an app. Choose the setup for **Instagram API with Facebook Login**; if the
-   wizard asks for an app type, use **Business**. Meta changes its wizard labels,
-   so check the integration name in the app dashboard.
-3. Use your Facebook user as an app administrator or developer for testing with
-   your own account. Complete any business or app verification the dashboard
-   requires. Access for people outside the app's roles needs Meta's approval.
-4. Open **App settings → Basic**. Keep the **App ID** and **App secret** available
-   for the terminal. These belong to the Meta app; neither is your Instagram ID.
+### 1. Link the Instagram account to a Facebook Page
 
-See Meta's [Instagram API setup and permission requirements](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api?entity=request-23987686-6fa9ed1d-3310-4844-ad25-f0001ab66f11).
+Use an Instagram **Business or Creator** account and a Facebook Page you manage.
+A personal Instagram account cannot use this publishing API.
 
-### 2. Generate a User access token
+1. If needed, open Instagram's profile menu → **Account type and tools** →
+   **Switch to professional account** and choose Business or Creator.
+2. On Facebook, use your profile menu → **See all profiles** to switch into the
+   **Page**. Open its **Settings & privacy → Settings**, find **Linked accounts**,
+   and connect Instagram there. Sharing a login through Accounts Center alone
+   does not establish the Page link this API needs.
+3. In the Page settings, **Page setup → Page access** shows who can manage it.
+   Use your own Facebook user with full control for the setup below.
+
+References: [professional accounts](https://www.facebook.com/help/instagram/2358103564437429?locale=en_US),
+[Page access](https://www.facebook.com/help/510247025775149/),
+[Meta's account prerequisites](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-facebook-login/get-started).
+
+### 2. Create and configure the Meta app
+
+1. Open [Create an app](https://developers.facebook.com/apps/creation/).
+   Register as a developer if prompted, then enter an app name and contact email.
+2. On **Use cases**, select **Manage messaging and content on Instagram**.
+3. Continue through **Business** and **Requirements**. For your own account,
+   choose your portfolio or **I don't want to connect a business portfolio yet**
+   when offered. On **Overview**, choose **Go to dashboard**.
+
+These are the current [app creation screens](https://developers.facebook.com/documentation/development/create-an-app).
+Older apps may still use **Other → Business → Add product → Instagram**;
+that older wizard is not a prerequisite for the steps below.
+
+4. Open **Use cases**, find the Instagram use case and choose **Customize**.
+   The dashboard's Instagram use-case card can also open this screen.
+5. In its left menu, choose **API setup with Facebook Login**.
+6. In the content-management section, click **Add all required permissions**.
+   Open **Permissions and features** to check that the four permissions listed
+   in step 3 below are available. `business_management` may also be added by
+   this use case; keep it if your account access depends on a business portfolio.
+
+**If you already selected Instagram Login:** Meta now permits only one Instagram
+login setup per app. If Facebook Login is unavailable, create another app using
+the steps above and select Facebook Login there. You can keep the existing app.
+This restriction and both menu paths are in Meta's
+[Instagram use-case guide](https://developers.facebook.com/documentation/development/create-an-app/instagram-use-case).
+
+For testing your own account, the Facebook user generating the token should be
+an administrator or developer under **App roles → Roles**. Access for people
+outside the app's roles can require App Review and business verification.
+Follow any access requirements shown for your app. This program uses a manually
+generated token, so it does not need a webhook server or an OAuth callback URL
+for Instagram.
+
+### 3. Generate the Facebook User token
 
 1. Open [Graph API Explorer](https://developers.facebook.com/tools/explorer/).
-2. Select **the app you just created** in the Meta App selector. Choose a **User
-   access token** for your Facebook user.
-3. Add all four permissions below, then select **Generate Access Token**:
+2. In the token panel, set **Meta App** to the app you just configured.
+   Under **User or Page**, choose **Get User Access Token**. If this immediately
+   opens Facebook authorization, complete it and return to Explorer.
+3. In **Permissions**, use **Add a Permission** to add these four names, then
+   click **Generate Access Token** again:
 
    ```text
    pages_show_list
@@ -68,15 +117,23 @@ See Meta's [Instagram API setup and permission requirements](https://www.postman
    instagram_content_publish
    ```
 
-4. In Facebook's authorization dialog, grant access to the linked Page and
-   Instagram account. Copy the resulting token.
+4. In Facebook's authorization window, select the intended Page and Instagram
+   account and approve the requested access. Back in Explorer, copy the value
+   in **Access Token**.
 
-If your Page is managed through a business portfolio and does not appear,
-check your access to that business and whether `business_management` is required.
-The [official Reels example](https://github.com/fbsamples/reels_publishing_apis/tree/main/insta_reels_publishing_api_sample)
-includes this permission in its Facebook Login flow.
+If the permissions you see start with `instagram_business_`, you are using
+Instagram Login. Return to step 2. The Facebook Login permissions above are
+documented in [Meta's official API collection](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api?entity=request-23987686-6fa9ed1d-3310-4844-ad25-f0001ab66f11).
 
-### 3. Connect it here
+For a Page managed through a business portfolio, `business_management` may also
+be needed. Meta's [Reels example](https://github.com/fbsamples/reels_publishing_apis/tree/main/insta_reels_publishing_api_sample)
+includes it. Generate a fresh token after adding permissions.
+
+### 4. Copy the app credentials and connect
+
+Return to your app dashboard and open **App settings → Basic**. Copy **App ID**
+and reveal **App secret** using **Show**. These are the main Meta app credentials,
+not the separate Instagram app credentials shown by the other login integration.
 
 ```bash
 uv run clips.py accounts
@@ -88,7 +145,7 @@ Choose **2 · Instagram**, then enter:
 | --- | --- |
 | Meta App ID | App settings → Basic |
 | Meta App secret | App settings → Basic → Show |
-| User access token from Graph API Explorer | The token generated in step 2 |
+| User access token from Graph API Explorer | The token generated in step 3 |
 | Instagram account | Choose from the discovered accounts |
 
 The program exchanges the User token for a long-lived token, checks its
@@ -101,7 +158,9 @@ Long-lived tokens can still expire or be revoked; reconnect when necessary.
 
 | What you see | What to check |
 | --- | --- |
-| Required permissions missing from Explorer | Select your own Meta app and check its Facebook Login integration and permission access. Instagram Login uses different scope names. |
+| Cannot find Instagram API during app creation | Select **Manage messaging and content on Instagram** on the **Use cases** screen. |
+| Only Instagram Login appears | Open **Use cases → Customize**. If the app is already committed to Instagram Login, use a separate app for Facebook Login. |
+| Required permissions missing from Explorer | Select the correct **Meta App**; add content-management permissions in its Facebook Login setup, then return to Explorer. |
 | Missing permissions in the terminal | Add the named permissions, generate a new User token, and approve them in the authorization dialog. |
 | No linked Instagram accounts found | Check professional account status, the Page link, full control of the Page, and which assets you selected during authorization. |
 | Token exchange fails | The App ID, App secret and User token must all belong to the same app. Generate a fresh User token. |
@@ -114,64 +173,91 @@ actual publication a little later.
 
 ## TikTok drafts
 
-TikTok setup requires developer app access to **video.upload**. Creating an app
-and copying its key alone is not enough: TikTok must permit the requested scope,
-and you must grant it during login. See the [Upload API prerequisites](https://developers.tiktok.com/doc/content-posting-api-get-started-upload-content).
+**For a personal tool, start with Sandbox for testing.** TikTok's current
+[app review guidelines](https://developers.tiktok.com/docs/en/app-review-guidelines)
+exclude apps intended only for private or personal use. Creating a developer
+app does not guarantee production upload access for this project.
 
-### 1. Configure the developer app
+This integration sends **inbox drafts**. You still open TikTok, add the caption
+from the TXT file, and finish posting. Scheduling sets the draft-delivery time.
+See TikTok's [Upload API prerequisites and posting flow](https://developers.tiktok.com/docs/en/content-posting-api-get-started-upload-content).
 
-1. Sign in to [TikTok for Developers](https://developers.tiktok.com/), open
-   **Manage apps**, and create or open your app.
-2. Add **Login Kit** and configure its **Desktop** platform. Add this exact
-   redirect URI, including the trailing slash:
+### 1. Open the correct dashboard and create a sandbox
+
+1. Sign in to [TikTok for Developers](https://developers.tiktok.com/), click your
+   profile icon at the top, then **Manage apps**. This is separate from TikTok
+   Studio and the advertising dashboard.
+2. Open an existing app, or choose **Connect an app**, select its owner and confirm.
+3. On the app page, switch the toggle beside the app name from **Production** to
+   **Sandbox**. Choose **Create Sandbox**, give it a name, and confirm.
+
+You should now see the sandbox's settings. TikTok's
+[sandbox guide has screenshots of this toggle](https://developers.tiktok.com/docs/en/add-a-sandbox).
+Public-video publishing is not available in Sandbox; use it to test the
+integration, not as unrestricted production access.
+
+### 2. Add products, the callback and your account
+
+1. Under **App details**, fill in the requested information and select **Desktop**
+   as the platform. TikTok asks for a website URL for desktop apps.
+2. Open **Products → Add products** and add **Login Kit** and **Content Posting API**.
+   These controls are shown in TikTok's [app registration guide](https://developers.tiktok.com/docs/en/getting-started-create-an-app).
+3. Under **Login Kit**, find the **Desktop** configuration and register this
+   redirect URI, including the final slash:
 
    ```text
    http://127.0.0.1:8765/callback/
    ```
 
-3. Add **Content Posting API** with upload access. In **Scopes**, add
-   `video.upload`; keep `user.info.basic` for identifying your account.
-4. Save the app settings. For development in **Sandbox**, add your TikTok account
-   under **Target users** and apply the changes. Use that environment's client
-   credentials when connecting. Sandbox is for testing and does not grant
-   unrestricted publishing access.
-5. Check whether `video.upload` is available to your app. If TikTok requires
-   review, complete that process before connecting. The review may require a
-   website, privacy policy, terms and a video demonstrating the integration.
-   This tool cannot bypass that approval.
+   If the form refuses this local HTTP address, check that you are editing
+   **Desktop**, not Web. The address follows TikTok's [Desktop redirect rules](https://developers.tiktok.com/docs/en/login-kit-desktop).
 
-Official guides: [Desktop Login Kit](https://developers.tiktok.com/doc/login-kit-desktop),
-[scopes](https://developers.tiktok.com/doc/scopes-overview),
-[Sandbox setup](https://developers.tiktok.com/doc/add-a-sandbox),
-[app review](https://developers.tiktok.com/doc/app-review-guidelines).
+4. Open **Scopes → Add Scopes** and select `video.upload`. Keep `user.info.basic`,
+   which Login Kit adds automatically. This program uses upload-to-inbox access;
+   it does not request `video.publish`. See the [scope controls](https://developers.tiktok.com/docs/en/scopes-overview).
+5. Open **Sandbox settings → Target users → Add account**. Log in to the TikTok
+   account that will receive the drafts and accept. TikTok says the account may
+   take up to an hour to appear after refreshing the page.
+6. Click **Apply changes**. Confirm that the account is listed before connecting
+   from the terminal.
 
-### 2. Connect it here
+### 3. Copy the matching credentials and connect
 
-1. Open your app's details in TikTok's developer portal and find **Client key**
-   and **Client secret**.
+1. Stay in the same sandbox. Open **App details → Credentials** and copy
+   **Client key** and **Client secret**. The app's numeric App ID is not its client key.
 2. Run `uv run clips.py accounts`, choose **3 · TikTok**, and enter those values.
-3. Log in to the intended TikTok account in the browser and approve the requested
-   access. Keep the terminal open until it shows the connected account.
+3. Authorize the same TikTok account you added as a target user. Leave the
+   terminal open until it shows **Connected TikTok**.
+
+### If your app already has production approval
+
+Use **Production** and its credentials instead. The approved, live configuration
+must include Login Kit, the Desktop callback and `video.upload`; saving a new
+draft revision does not update the live configuration. App approval and your
+account's consent are both required.
+
+For an eligible public integration, production review requires a working website,
+privacy policy, terms, and a recording demonstrating the requested features.
+The portal's **URL properties** control handles required URL verification.
+Do not substitute the local callback address for a website or policy URL.
+This program uploads MP4 bytes directly, so it does not need a public video URL.
+See [registration and verification](https://developers.tiktok.com/docs/en/getting-started-create-an-app)
+and [review requirements](https://developers.tiktok.com/docs/en/app-review-guidelines).
+
+### If connection fails
 
 | What you see | What to check |
 | --- | --- |
 | Redirect URI error | Use the Desktop configuration and the exact URI above, including `http`, `127.0.0.1`, port `8765` and `/callback/`. |
-| Scope error or `video.upload` not granted | Check Content Posting API, requested scopes, TikTok approval, and the permissions you accepted at login. |
-| Sandbox login denied | Add your account to Target users, apply changes, and use the matching Sandbox credentials. |
+| Cannot find Login Kit or Content Posting API | Open the app's **Products** section and click **Add products**. |
+| `video.upload` missing or not granted | Add Content Posting API first, then **Scopes → Add Scopes**. Apply sandbox changes or obtain production scope approval, then authorize again. |
+| Sandbox login denied | Add the account under **Sandbox settings → Target users**, apply changes, wait for it to appear, and use credentials from that sandbox. |
+| The form asks for website or policy URLs | These describe your app; they are separate from the local Login Kit callback. Complete the portal's URL-verification requirements where requested. |
 | Pending-share limit | Open TikTok and finish or remove existing inbox drafts before sending more. |
 
-### What uploading does
-
-An upload arrives as a **TikTok inbox notification**. Open it, add the caption from
-the clip's TXT file, review, and finish posting. A scheduled upload schedules
-**draft delivery**, not public publication, and needs this computer awake and online.
-Until your developer app has upload access, you can always upload the exported MP4
-and copy its TXT caption manually.
-
-[TikTok's Upload API](https://developers.tiktok.com/doc/content-posting-api-reference-upload-video)
-requires that final in-app step. Direct Post is not implemented: its
-[review and consent requirements](https://developers.tiktok.com/doc/content-sharing-guidelines)
-and restrictions on private/internal tools do not suit unattended use of this app.
+Keep this computer awake and online until scheduled draft delivery. If TikTok
+does not grant your app upload access, use the exported MP4 and TXT manually.
+There is no local setting that enables a scope TikTok has not granted.
 
 ## Queue and recovery
 
