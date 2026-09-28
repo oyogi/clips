@@ -19,9 +19,10 @@ Clip creation needs no API key or speech transcription service.
 - **Ready-to-post text:** each MP4 comes with a TXT containing its title,
   description, hashtags and the full source video title. The prompt and a single
   clip's publishing text copy to the clipboard automatically.
-- **Optional publishing:** YouTube uploads and native scheduling, Instagram Reels
-  with local scheduling, and TikTok inbox drafts. Review individual clips or use
-  automatic mode with saved destinations and timing.
+- **YouTube publishing:** public uploads, always marked not made for kids. Choose
+  the first posting time and an interval for the remaining clips. Everything
+  uploads now; YouTube handles publication after your computer turns off.
+  Review individual clips or use automatic mode with saved timing.
 
 Videos without usable captions are skipped. Word highlight timing is estimated
 from the captions; face tracking detects visible people, not the active speaker.
@@ -59,23 +60,17 @@ press Enter. Everything else is guided in the terminal.
 | --- | --- |
 | `youtube-clips` | Create clips and optionally review and publish |
 | `youtube-clips auto` | Use Faces framing and upload without clip review |
-| `youtube-clips auto-setup` | Change automatic destinations and timing |
-| `youtube-clips accounts` | Connect or remove publishing accounts |
+| `youtube-clips auto-setup` | Change automatic posting timing |
+| `youtube-clips accounts` | Connect or remove your YouTube account |
 | `youtube-clips queue` | Check uploads, cancel jobs or retry failures |
 | `youtube-clips doctor` | Check encoding and face-detection hardware |
 
 The same commands work after `python clips.py` or `uv run clips.py`.
 Automatic mode still uses your manually pasted ChatGPT reply.
 
-Publishing requires developer credentials for the connected platforms. Instagram
-uses Meta's Facebook Login integration and needs this computer online for schedules.
-TikTok drafts require finishing in its app; its production approval rules exclude
-apps intended only for personal use. See [account setup and scheduling](docs/publishing.md)
-for the current dashboard steps and sandbox limitations.
-
-To prepare a batch and then turn the computer off, use YouTube's native scheduling
-and schedule the exported MP4s directly in TikTok Studio and Instagram. The local
-Instagram/TikTok queue cannot run while the computer is off.
+Publishing uses a Google Desktop OAuth client. See [YouTube setup and scheduling](docs/publishing.md).
+Keep the computer online until every upload and schedule is accepted by YouTube.
+The exported MP4 and TXT files are also ready for manual posting elsewhere.
 
 ## Build
 

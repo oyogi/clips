@@ -17,11 +17,11 @@ def check(response: httpx.Response) -> httpx.Response:
         except ValueError:
             payload = {}
         code = error_code(payload)
-        hint = "Check account permissions and platform limits."
+        hint = "Check YouTube account permissions and API limits."
         if response.status_code == 401:
             hint = "Reconnect the account with youtube-clips accounts."
         elif response.status_code == 429:
-            hint = "The platform's rate limit was reached. Try again later."
+            hint = "The API's rate limit was reached. Try again later."
         raise ClipsError(f"API returned HTTP {response.status_code}{code}. {hint}")
     return response
 
@@ -41,11 +41,10 @@ def data(response: httpx.Response) -> dict[str, Any]:
     try:
         result = object_data(response.json())
     except ValueError as error:
-        raise ClipsError("The platform returned an invalid JSON response.") from error
-    api_error = result.get("error")
-    if api_error and (not isinstance(api_error, dict) or api_error.get("code") != "ok"):
+        raise ClipsError("Google returned an invalid JSON response.") from error
+    if result.get("error"):
         raise ClipsError(
-            f"The platform rejected the request{error_code(result)}. Check account permissions and upload limits."
+            f"Google rejected the request{error_code(result)}. Check account permissions and upload limits."
         )
     return result
 

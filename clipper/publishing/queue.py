@@ -5,7 +5,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -15,8 +15,8 @@ from rich.text import Text
 
 from ..models import ClipsError
 from ..ui import console
-from .platforms import publish
-from .store import LABELS, accounts, database, fingerprint, jobs, retry, state_directory, update
+from .store import account, database, fingerprint, jobs, retry, state_directory, update
+from .youtube import publish
 
 
 def worker() -> None:
@@ -35,10 +35,7 @@ def worker() -> None:
             pending = [entry for entry in jobs() if entry.state == "queued"]
             if not pending:
                 return
-            entry = min(pending, key=lambda item: item.due)
-            if entry.due > time.time():
-                time.sleep(min(15, entry.due - time.time()))
-                continue
+            entry = min(pending, key=lambda item: (item.job.when, item.id))
             with database() as db:
                 claimed = db.execute(
                     "UPDATE jobs SET state='uploading' WHERE id=? AND state='queued'", (entry.id,)
@@ -58,14 +55,14 @@ def worker() -> None:
                     raise ClipsError(
                         "Posting time was missed by more than 15 minutes. Schedule again."
                     )
-                account = accounts().get(job.platform)
-                if account is None or account.id != job.account_id:
+                connected = account()
+                if connected is None or connected.id != job.account_id:
                     raise ClipsError("The selected account was disconnected or replaced.")
                 if fingerprint(Path(job.path)) != job.sha256:
                     raise ClipsError(
                         "The clip changed after it was queued. Schedule the updated file again."
                     )
-                message = publish(job, account, checkpoint)
+                message = publish(job, connected, checkpoint)
                 update(entry.id, "done", message)
             except (ClipsError, OSError, httpx.HTTPError, ValueError, KeyError) as error:
                 message = (
@@ -107,11 +104,11 @@ def show_queue() -> None:
             console.print("No uploads queued.", style="muted")
             return
         console.print(
-            f"\nUploads · local time {datetime.now().astimezone():%H:%M %Z}", style="heading"
+            f"\nYouTube uploads · local time {datetime.now(UTC).astimezone():%H:%M %Z}",
+            style="heading",
         )
         table = Table(box=None, padding=(0, 1), show_edge=False, expand=True)
         table.add_column("ID", style="accent", no_wrap=True)
-        table.add_column("Destination")
         table.add_column("Clip", ratio=1)
         table.add_column("Posting time")
         table.add_column("State")
@@ -125,7 +122,6 @@ def show_queue() -> None:
             )
             table.add_row(
                 str(entry.id),
-                LABELS[entry.job.platform],
                 Text(entry.job.title),
                 time_label(entry.job.when),
                 Text(entry.state, style=style),
@@ -173,10 +169,7 @@ def show_queue() -> None:
                 "Check the destination account first: an interrupted upload may already exist."
             )
             when = posting_time()
-            if selected.job.platform == "youtube":
-                console.print(
-                    f"YouTube visibility: {'public at the scheduled time' if when else selected.job.privacy}"
-                )
+            console.print("YouTube · Public · Not made for kids", style="muted")
             if Confirm.ask(
                 "I checked the account; upload this clip again?", default=False, console=console
             ):

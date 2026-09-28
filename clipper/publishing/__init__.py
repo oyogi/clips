@@ -1,1 +1,1 @@
-"""Optional account connections and persistent publishing jobs."""
+"""YouTube account connection, uploads, and native scheduling."""

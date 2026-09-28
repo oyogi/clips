@@ -1,4 +1,4 @@
-"""Private local account storage and an upload queue."""
+"""Private local storage for a YouTube account and its upload queue."""
 
 import hashlib
 import json
@@ -8,13 +8,9 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from ..models import ClipsError
-
-type Platform = Literal["youtube", "instagram", "tiktok"]
-PLATFORMS: tuple[Platform, ...] = ("youtube", "instagram", "tiktok")
-LABELS = {"youtube": "YouTube", "instagram": "Instagram", "tiktok": "TikTok drafts"}
 
 
 def state_directory() -> Path:
@@ -39,14 +35,41 @@ def database() -> Iterator[sqlite3.Connection]:
             )
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, data TEXT, "
-                "due REAL, state TEXT DEFAULT 'queued', result TEXT DEFAULT '')"
+                "state TEXT DEFAULT 'queued', result TEXT DEFAULT '')"
             )
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, data TEXT)"
             )
+            migrate(connection)
+            connection.commit()
             yield connection
     finally:
         connection.close()
+
+
+def migrate(db: sqlite3.Connection) -> None:
+    if db.execute("PRAGMA user_version").fetchone()[0]:
+        return
+    db.execute("BEGIN IMMEDIATE")
+    if db.execute("PRAGMA user_version").fetchone()[0]:
+        return
+    db.execute("DELETE FROM accounts WHERE platform <> 'youtube'")
+    db.execute("UPDATE accounts SET data=json_remove(data, '$.platform')")
+    db.execute("DELETE FROM jobs WHERE json_extract(data, '$.platform') IS NOT 'youtube'")
+    db.execute(
+        "UPDATE jobs SET state='cancelled', result='Publishing now uses public visibility and "
+        "not made for kids. Review and retry this upload to use those settings.' "
+        "WHERE state='queued' AND ((json_extract(data, '$.when')=0 AND "
+        "json_extract(data, '$.privacy') IS NOT 'public') "
+        "OR json_extract(data, '$.made_for_kids')=1)"
+    )
+    db.execute(
+        "UPDATE jobs SET data=json_remove(data, '$.platform', '$.privacy', '$.made_for_kids')"
+    )
+    if any(row["name"] == "due" for row in db.execute("PRAGMA table_info(jobs)")):
+        db.execute("ALTER TABLE jobs DROP COLUMN due")
+    db.execute("DELETE FROM settings WHERE key='automatic'")
+    db.execute("PRAGMA user_version=1")
 
 
 def object_data(value: object) -> dict[str, Any]:
@@ -68,7 +91,6 @@ def saved_record[T](model: type[T], text: str) -> T:
 
 @dataclass
 class Account:
-    platform: Platform
     id: str
     label: str
     secrets: dict[str, str] = field(default_factory=dict, repr=False)
@@ -78,24 +100,22 @@ class Account:
             if refresh:
                 db.execute("BEGIN IMMEDIATE")
                 current = db.execute(
-                    "SELECT data FROM accounts WHERE platform=?", (self.platform,)
+                    "SELECT data FROM accounts WHERE platform='youtube'"
                 ).fetchone()
                 if not current or object_data(json.loads(current["data"])).get("id") != self.id:
                     raise ClipsError(
                         "The account was disconnected or replaced during token refresh."
                     )
             db.execute(
-                "INSERT OR REPLACE INTO accounts VALUES (?, ?)",
-                (self.platform, json.dumps(asdict(self))),
+                "INSERT OR REPLACE INTO accounts VALUES ('youtube', ?)",
+                (json.dumps(asdict(self)),),
             )
 
 
-def accounts() -> dict[Platform, Account]:
+def account() -> Account | None:
     with database() as db:
-        return {
-            row["platform"]: saved_record(Account, row["data"])
-            for row in db.execute("SELECT * FROM accounts")
-        }
+        row = db.execute("SELECT data FROM accounts WHERE platform='youtube'").fetchone()
+    return saved_record(Account, row["data"]) if row else None
 
 
 def fingerprint(path: Path) -> str:
@@ -105,22 +125,18 @@ def fingerprint(path: Path) -> str:
 
 @dataclass(frozen=True)
 class Job:
-    platform: Platform
     account_id: str
     path: str
     title: str
     text: str
     when: float
     sha256: str
-    privacy: str = "private"
-    made_for_kids: bool = False
 
 
 @dataclass(frozen=True)
 class SavedJob:
     id: int
     job: Job
-    due: float
     state: str
     result: str
 
@@ -129,8 +145,8 @@ def enqueue(jobs: list[Job]) -> None:
     with database() as db:
         for job in jobs:
             db.execute(
-                "INSERT INTO jobs (data, due) VALUES (?, ?)",
-                (json.dumps(asdict(job)), 0 if job.platform == "youtube" else job.when),
+                "INSERT INTO jobs (data) VALUES (?)",
+                (json.dumps(asdict(job)),),
             )
 
 
@@ -140,7 +156,6 @@ def jobs() -> list[SavedJob]:
             SavedJob(
                 row["id"],
                 saved_record(Job, row["data"]),
-                row["due"],
                 row["state"],
                 row["result"],
             )
@@ -156,17 +171,12 @@ def update(job_id: int, state: str, result: str) -> None:
 def retry(entry: SavedJob, when: float) -> None:
     if entry.state not in ("failed", "check account", "cancelled"):
         raise ClipsError("Only failed, interrupted or cancelled jobs can be retried.")
-    job = replace(
-        entry.job,
-        when=when,
-        privacy="public" if when and entry.job.platform == "youtube" else entry.job.privacy,
-    )
+    job = replace(entry.job, when=when)
     with database() as db:
         changed = db.execute(
-            "UPDATE jobs SET state='queued', result='', data=?, due=? WHERE id=? AND state=?",
+            "UPDATE jobs SET state='queued', result='', data=? WHERE id=? AND state=?",
             (
                 json.dumps(asdict(job)),
-                0 if job.platform == "youtube" else when,
                 entry.id,
                 entry.state,
             ),
