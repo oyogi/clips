@@ -37,8 +37,13 @@ build compiled with its CUDA DNN backend. No extra Python inference framework is
 required by this project.
 
 The app samples faces about 2.5 times per second and interpolates crop motion.
+The system FFmpeg decodes these samples, including AV1 sources; OpenCV handles
+face detection only. This avoids codec limitations in OpenCV's bundled decoder.
 GPU inference cannot remove the cost of decoding the source or composing frames.
 Detection finds visible faces, not identities or the active speaker.
+
+Normal runs omit OpenCV tuning notices while keeping errors visible. Set
+`OPENCV_LOG_LEVEL=DEBUG` explicitly if you need its native diagnostic messages.
 
 References: [OpenCV FaceDetectorYN](https://docs.opencv.org/doc/doxygen/html/df/d20/classcv_1_1FaceDetectorYN.html),
 [OpenCV DNN targets](https://docs.opencv.org/doc/doxygen/html/d6/d0f/group__dnn.html),

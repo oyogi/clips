@@ -1,12 +1,91 @@
-"""Select a working face-detection backend using measured inference latency."""
+"""Decode video samples and select a working face-detection backend."""
 
+import subprocess
+import tempfile
+import threading
 import time
+from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import median
 
 import cv2
 import numpy as np
+
+from .models import Clip, ClipsError
+
+
+def sample_frames(
+    source: Path, clip: Clip
+) -> Generator[tuple[float, cv2.typing.MatLike], None, None]:
+    filters = (
+        "fps=5/2:start_time=0:round=up,scale=trunc(iw*sar/2)*2:ih,setsar=1,"
+        "scale=640:640:force_original_aspect_ratio=decrease:force_divisible_by=2"
+    )
+    args = [
+        "ffmpeg",
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-ss",
+        str(clip.start),
+        "-i",
+        str(source.resolve()),
+        "-t",
+        str(clip.duration),
+        "-an",
+        "-sn",
+        "-vf",
+        filters,
+        "-c:v",
+        "ppm",
+        "-pix_fmt",
+        "rgb24",
+        "-f",
+        "image2pipe",
+        "pipe:1",
+    ]
+    try:
+        with (
+            tempfile.TemporaryFile(mode="w+") as errors,
+            subprocess.Popen(
+                args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=errors
+            ) as process,
+        ):
+            if process.stdout is None:
+                process.kill()
+                raise ClipsError("FFmpeg did not open its frame pipe.")
+            timer = threading.Timer(max(180, clip.duration * 30), process.kill)
+            timer.daemon = True
+            timer.start()
+            try:
+                index = 0
+                while header := process.stdout.readline():
+                    if header != b"P6\n":
+                        raise ClipsError("FFmpeg returned an invalid frame header.")
+                    width, height = map(int, process.stdout.readline().split())
+                    if process.stdout.readline() != b"255\n" or not (
+                        0 < width <= 640 and 0 < height <= 640
+                    ):
+                        raise ClipsError("FFmpeg returned an unsupported frame format.")
+                    pixels = process.stdout.read(width * height * 3)
+                    if len(pixels) != width * height * 3:
+                        raise ClipsError("Video decoding stopped partway through a frame.")
+                    frame = np.frombuffer(pixels, dtype=np.uint8).reshape(height, width, 3)
+                    yield index * 0.4, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                    index += 1
+                if process.wait():
+                    errors.seek(0)
+                    detail = errors.read()[-1500:].strip() or "Decoding timed out."
+                    raise ClipsError("Could not decode frames for face tracking: " + detail)
+            finally:
+                timer.cancel()
+                if process.poll() is None:
+                    process.kill()
+                process.wait()
+    except (OSError, ValueError) as error:
+        raise ClipsError("Could not read video frames for face tracking.") from error
 
 
 @dataclass

@@ -2,6 +2,7 @@
 
 import math
 from collections.abc import Sequence
+from contextlib import closing
 from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
@@ -63,76 +64,56 @@ class FaceScan:
 def sample_faces(source: Path, clip: Clip, progress: ProgressCallback | None) -> FaceScan:
     import cv2
 
-    from .detection import Detector, choose_detector
+    from .detection import Detector, choose_detector, sample_frames
 
-    capture = cv2.VideoCapture(str(source))
     samples = []
     detector: Detector | None = None
     try:
-        if not capture.isOpened():
-            raise ClipsError("Could not open the source for face tracking.")
-        fps = capture.get(cv2.CAP_PROP_FPS)
-        if not math.isfinite(fps) or fps <= 0:
-            fps = 30
-        capture.set(cv2.CAP_PROP_POS_MSEC, clip.start * 1000)
-        next_sample = 0.0
-        previous_gray: cv2.typing.MatLike | None = None
-        while capture.grab():
-            timestamp = capture.get(cv2.CAP_PROP_POS_MSEC) / 1000 - clip.start
-            if not math.isfinite(timestamp) or timestamp < -0.1:
-                timestamp = (capture.get(cv2.CAP_PROP_POS_FRAMES) - 1) / fps - clip.start
-            if timestamp >= clip.duration:
-                break
-            if timestamp + 0.001 < next_sample:
-                continue
-            ok, frame = capture.retrieve()
-            if not ok:
-                break
-            timestamp = max(0.0, timestamp)
-            next_sample = timestamp + 0.4
-            scale = min(640 / frame.shape[1], 640 / frame.shape[0], 1.0)
-            frame = cv2.resize(
-                frame,
-                (max(32, round(frame.shape[1] * scale)), max(32, round(frame.shape[0] * scale))),
-            )
-            frame_h, frame_w = frame.shape[:2]
-            gray = cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (32, 18))
-            cut = previous_gray is not None and bool(cv2.absdiff(gray, previous_gray).mean() > 40)
-            previous_gray = gray
-            if detector is None:
-                detector = choose_detector(frame)
-            try:
-                detected = detector.detect(frame)
-            except cv2.error:
-                if detector.label.startswith("CPU"):
-                    raise
-                model = Path(__file__).with_name("assets") / "face_detection_yunet.onnx"
-                detector = Detector(
-                    cv2.FaceDetectorYN.create(str(model), "", (frame_w, frame_h), 0.75, 0.3, 5000),
-                    "CPU (GPU fallback)",
+        with closing(sample_frames(source, clip)) as frames:
+            previous_gray: cv2.typing.MatLike | None = None
+            for timestamp, frame in frames:
+                if timestamp >= clip.duration:
+                    break
+                frame_h, frame_w = frame.shape[:2]
+                gray = cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (32, 18))
+                cut = previous_gray is not None and bool(
+                    cv2.absdiff(gray, previous_gray).mean() > 40
                 )
-                detected = detector.detect(frame)
-            faces = (
-                tuple(
-                    Face(
-                        (
-                            float(face[0] + face[2] / 2) / frame_w,
-                            float(face[1] + face[3] * 0.6) / frame_h,
+                previous_gray = gray
+                if detector is None:
+                    detector = choose_detector(frame)
+                try:
+                    detected = detector.detect(frame)
+                except cv2.error:
+                    if detector.label.startswith("CPU"):
+                        raise
+                    model = Path(__file__).with_name("assets") / "face_detection_yunet.onnx"
+                    detector = Detector(
+                        cv2.FaceDetectorYN.create(
+                            str(model), "", (frame_w, frame_h), 0.75, 0.3, 5000
                         ),
-                        float(face[2] * face[3]),
+                        "CPU (GPU fallback)",
                     )
-                    for face in detected
+                    detected = detector.detect(frame)
+                faces = (
+                    tuple(
+                        Face(
+                            (
+                                float(face[0] + face[2] / 2) / frame_w,
+                                float(face[1] + face[3] * 0.6) / frame_h,
+                            ),
+                            float(face[2] * face[3]),
+                        )
+                        for face in detected
+                    )
+                    if detected is not None
+                    else ()
                 )
-                if detected is not None
-                else ()
-            )
-            samples.append(Sample(timestamp, faces, cut))
-            if progress:
-                progress(f"Faces · {detector.label}", min(1.0, timestamp / clip.duration))
+                samples.append(Sample(timestamp, faces, cut))
+                if progress:
+                    progress(f"Faces · {detector.label}", min(1.0, timestamp / clip.duration))
     except cv2.error as error:
         raise ClipsError("Face detection failed; try Black framing.") from error
-    finally:
-        capture.release()
     if not samples or detector is None:
         raise ClipsError("Could not read frames for face tracking.")
     samples[0] = Sample(0, samples[0].faces, True)

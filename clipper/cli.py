@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import os
 import sqlite3
 import tempfile
 import time
@@ -151,6 +152,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="automatic runs, publishing preferences, accounts, uploads, or hardware checks",
     )
     args = parser.parse_args(argv)
+    os.environ.setdefault("OPENCV_LOG_LEVEL", "ERROR")
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
     try:
         if args.command == "doctor":

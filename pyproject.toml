@@ -44,6 +44,7 @@ allowed-confusables = ["×", "–", "＼", "｛", "｝"]
 [tool.ruff.lint.per-file-ignores]
 # Commands use argument lists; clipboard text is sent over stdin.
 "clipper/clipboard.py" = ["S603"]
+"clipper/detection.py" = ["S603"]
 "clipper/render.py" = ["S603"]
 # The clip-selection prompt is prose, not an SQL query.
 "clipper/manual.py" = ["S608"]
